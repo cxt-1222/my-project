@@ -5,6 +5,7 @@ from clients.rustfs import init_rustfs_bucket
 from services.content_service import init_mongodb
 from clients.rabbitmq.mq import init_mq,close_mq
 from clients.es_client import init_es,close_es
+from clients.milvus_client import start_vector_writer, stop_vector_writer
 from clients.neo4j_client import init_neo4j_driver, close_neo4j_driver
 
 if sys.platform == 'win32':
@@ -34,10 +35,12 @@ async def lifespan(app: FastAPI):
     # 在main的lifespan里调用抽出去的初始化函数
     await init_rustfs_bucket()
     await init_mongodb()
+    start_vector_writer()
     await init_mq()
     await init_es()
     await init_neo4j_driver()
     yield
+    await stop_vector_writer()
     await close_mq()
     await close_es()
     await close_neo4j_driver()
