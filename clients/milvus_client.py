@@ -1,3 +1,5 @@
+import asyncio
+
 from pymilvus import AsyncMilvusClient
 from langchain_openai import OpenAIEmbeddings
 
@@ -23,6 +25,74 @@ async def embedding_text(txt:str):
     # 必须用异步版本，同步 embed_query 会阻塞整个事件循环
     return await embddings_model.aembed_query(txt)
 
+# 攒批写入：每条消息单独 insert+flush 会产生大量小 segment，
+# 触发频繁 compaction 导致查询抖动，这里合并为批量 insert + 批量 flush
+_vector_queue: asyncio.Queue[tuple[list[dict], asyncio.Future]] = asyncio.Queue()
+_writer_task: asyncio.Task | None = None
+
+
+async def _flush_vector_batch(batch: list[tuple[list[dict], asyncio.Future]]):
+    rows = [row for rows, _ in batch for row in rows]
+    try:
+        await milvus_client.insert(collection_name=settings.COLLECTION_NAME, data=rows)
+        await milvus_client.flush(collection_name=settings.COLLECTION_NAME)
+    except Exception as e:
+        for _, fut in batch:
+            if not fut.done():
+                fut.set_exception(e)
+        return
+    for _, fut in batch:
+        if not fut.done():
+            fut.set_result(None)
+
+
+async def _vector_writer_loop():
+    loop = asyncio.get_running_loop()
+    batch: list[tuple[list[dict], asyncio.Future]] = []
+    n_rows = 0
+    deadline: float | None = None
+    while True:
+        timeout = None if not batch else max(0.0, deadline - loop.time())
+        try:
+            item = await asyncio.wait_for(_vector_queue.get(), timeout)
+        except (asyncio.TimeoutError, TimeoutError):
+            item = None
+        if item is not None:
+            batch.append(item)
+            n_rows += len(item[0])
+            if deadline is None:
+                deadline = loop.time() + settings.MILVUS_BATCH_INTERVAL
+            if n_rows < settings.MILVUS_BATCH_SIZE:
+                continue
+        if not batch:
+            continue
+        await _flush_vector_batch(batch)
+        batch, n_rows, deadline = [], 0, None
+
+
+def start_vector_writer():
+    global _writer_task
+    if _writer_task is None or _writer_task.done():
+        _writer_task = asyncio.get_running_loop().create_task(_vector_writer_loop())
+
+
+async def stop_vector_writer():
+    global _writer_task
+    if _writer_task is not None:
+        _writer_task.cancel()
+        try:
+            await _writer_task
+        except asyncio.CancelledError:
+            pass
+        _writer_task = None
+    # 排空队列里未落库的数据
+    batch = []
+    while not _vector_queue.empty():
+        batch.append(_vector_queue.get_nowait())
+    if batch:
+        await _flush_vector_batch(batch)
+
+
 async def milvus_insert(doc_id,meta,chunks):
     # 集合 id 是 auto_id，插入时不能带主键字段
     meta = dict(meta)
@@ -44,12 +114,11 @@ async def milvus_insert(doc_id,meta,chunks):
         for index, (chunk, vector) in enumerate(zip(chunks, vectors))
     ]
 
-    await milvus_client.insert(
-        collection_name=settings.COLLECTION_NAME,
-        data=table_data
-    )
-    await milvus_client.flush(collection_name=settings.COLLECTION_NAME)
-    print('milvus 向量数据库新增数据成功！')
+    # 交给写批任务，等真正 insert+flush 落库后再返回，
+    # 保证调用方(消费者)在数据落库前不会 ack 消息、不会回写成功状态
+    fut = asyncio.get_running_loop().create_future()
+    await _vector_queue.put((table_data, fut))
+    await fut
 
 
 # 从向量数据库中进行查询相似度最接近的数据

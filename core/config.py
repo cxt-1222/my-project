@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     DIMENSIONS: int
     MILVUS_URL: str
     MILVUS_TOKEN: str
+    MILVUS_BATCH_SIZE: int = 200      # 攒批写入条数阈值
+    MILVUS_BATCH_INTERVAL: float = 5.0  # 攒批最长等待秒数
 
     # Neo4j
     NEO4J_URI: str
