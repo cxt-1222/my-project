@@ -31,3 +31,10 @@ bcrypt==5.0.0
 pyjwt==2.10.1
 pymupdf
 fastmcp-slim[server]
+aioboto3
+aio-pika
+neo4j
+psycopg[binary]
+openpyxl
+python-docx
+python-pptx

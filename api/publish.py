@@ -43,4 +43,4 @@ async def publish_api(doc_id:int):
 async def mq_publish_es(doc_id,meta,content):
     await publish_index(meta, content)
     await publish_rag(doc_id, meta)
-    await publish_kg(doc_id,content)
+    #await publish_kg(doc_id,content)

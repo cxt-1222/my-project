@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f2e9">
+  <meta name="description" content="撸铁记 — 让每一次训练都更有方向。">
+  <title>撸铁记 IRON FLOW</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <svg class="svg-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="i-mark" viewBox="0 0 48 48"><path d="M7 18h5v12H7zm8-6h5v24h-5zm16 0h5v24h-5zm8 6h5v12h-5zM20 21h11v6H20z" fill="currentColor"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-6v-7h-4v7H4a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H7l-4 2 1.2-4.1A7.5 7.5 0 1 1 20 11.5Z"/><path d="M8 11h.01M12 11h.01M16 11h.01"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v17H6.5A2.5 2.5 0 0 0 4 22z"/><path d="M4 5.5v14A2.5 2.5 0 0 1 6.5 17H20M8 7h8M8 11h7"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 5 5"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4m-5 5 5-5 5 5"/><path d="M4 15v5h16v-5"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 2 1.6 6.4L20 10l-6.4 1.6L12 18l-1.6-6.4L4 10l6.4-1.6zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></symbol>
+    <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5m5 5H3"/><path d="M12 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7"/></symbol>
+    <symbol id="i-dumbbell" viewBox="0 0 24 24"><path d="M6 9v6m12-6v6M3 10v4m18-4v4M6 12h12"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 20 6v5c0 5-3.4 8.6-8 10-4.6-1.4-8-5-8-10V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="m19.4 15 .1.1a2 2 0 1 1-2.8 2.8l-.1-.1a2 2 0 0 0-3.4 1.4v.3a2 2 0 1 1-4 0v-.2A2 2 0 0 0 5.8 18l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A2 2 0 0 0 1.6 12a2 2 0 1 1 0-4h.2A2 2 0 0 0 3 4.6l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A2 2 0 0 0 9.2 0.4V.2a2 2 0 1 1 4 0v.2A2 2 0 0 0 16.6 2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A2 2 0 0 0 20.8 8h.2a2 2 0 1 1 0 4h-.2a2 2 0 0 0-1.4 3Z"/></symbol>
+  </svg>
+
+  <main id="authScreen" class="auth-screen">
+    <section class="auth-story" aria-label="品牌介绍">
+      <a class="brand brand-light" href="#"><span class="brand-icon"><svg><use href="#i-mark"/></svg></span><span>撸铁记<small>IRON FLOW</small></span></a>
+      <div class="auth-story-copy">
+        <p class="eyebrow"><span class="pulse-dot"></span> YOUR TRAINING, IN MOTION</p>
+        <h1>练得更明白，<br><em>也更带劲。</em></h1>
+        <p class="auth-lede">一个懂训练、懂营养，也记得你每一步的 AI 健身搭子。</p>
+      </div>
+      <div class="auth-orbit" aria-hidden="true"><div class="orbit-ring ring-one"></div><div class="orbit-ring ring-two"></div><div class="orbit-disc"><svg><use href="#i-mark"/></svg></div><span class="orbit-tag tag-a">MOVE WITH INTENT</span><span class="orbit-tag tag-b">STRONGER / EVERY DAY</span><span class="orbit-cross cross-a">+</span><span class="orbit-cross cross-b">+</span></div>
+      <div class="auth-foot"><span>训练有计划，进步看得见。</span><span>EST. 2026</span></div>
+    </section>
+    <section class="auth-panel">
+      <div class="auth-panel-top"><span class="mobile-brand brand"><span class="brand-icon"><svg><use href="#i-mark"/></svg></span><span>撸铁记<small>IRON FLOW</small></span></span><span class="auth-panel-note">训练状态已就绪 <span class="status-led"></span></span></div>
+      <div class="auth-card">
+        <p class="eyebrow" id="authEyebrow">WELCOME BACK</p>
+        <h2 id="authTitle">回来继续练。</h2>
+        <p class="muted" id="authSubtitle">登录你的训练空间，让今天的努力有迹可循。</p>
+        <form id="authForm" class="auth-form">
+          <label class="field-label" for="username">用户名</label>
+          <input id="username" name="username" autocomplete="username" placeholder="输入用户名" required minlength="2">
+          <div id="emailField" class="hidden-field"><label class="field-label" for="email">邮箱</label><input id="email" name="email" type="email" autocomplete="email" placeholder="name@example.com"></div>
+          <label class="field-label" for="password">密码</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" placeholder="至少 6 位" required minlength="6">
+          <p id="authError" class="form-error" role="alert"></p>
+          <button class="button button-primary button-wide" id="authSubmit" type="submit">登录并开始 <svg><use href="#i-arrow"/></svg></button>
+        </form>
+        <p class="auth-switch"><span id="authSwitchText">还没有账号？</span> <button id="authSwitch" class="text-button" type="button">创建一个</button></p>
+        <details class="connection-details"><summary>连接设置</summary><label class="field-label" for="apiBase">后端 API 地址</label><div class="inline-setting"><input id="apiBase" value="http://localhost:8000" spellcheck="false"><button id="saveApiBase" class="button button-quiet" type="button">保存</button></div><small>本机运行默认使用 http://localhost:8000</small></details>
+      </div>
+      <div class="auth-panel-foot">撸铁记 · 把每次训练，都练成下一次更好的起点。</div>
+    </section>
+  </main>
+
+  <div id="appShell" class="app-shell hidden">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#dashboard" aria-label="撸铁记首页"><span class="brand-icon"><svg><use href="#i-mark"/></svg></span><span>撸铁记<small>IRON FLOW</small></span></a>
+      <div class="sidebar-caption">训练工作台</div>
+      <nav class="primary-nav" aria-label="主导航">
+        <button class="nav-item active" data-page="dashboard"><svg><use href="#i-home"/></svg><span>今日训练</span><span class="nav-marker"></span></button>
+        <button class="nav-item" data-page="coach"><svg><use href="#i-chat"/></svg><span>AI 教练</span><span class="nav-marker"></span></button>
+        <button class="nav-item" data-page="library"><svg><use href="#i-book"/></svg><span>健身知识库</span><span class="nav-marker"></span></button>
+        <button class="nav-item" data-page="profile"><svg><use href="#i-user"/></svg><span>我的档案</span><span class="nav-marker"></span></button>
+        <button class="nav-item nav-item-admin" data-page="admin"><svg><use href="#i-shield"/></svg><span>管理台</span><span class="nav-marker"></span></button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="sidebar-tip"><span class="tip-icon"><svg><use href="#i-spark"/></svg></span><p>不必一次练到完美，<br><strong>只要比昨天多一点。</strong></p><span class="tip-stripe"></span></div>
+        <button id="logoutButton" class="logout-button"><svg><use href="#i-logout"/></svg>退出登录</button>
+        <div class="sidebar-version">IRON FLOW <span>·</span> TRAINING LOG / 01</div>
+      </div>
+    </aside>
+    <div id="mobileOverlay" class="mobile-overlay"></div>
+    <main class="main-column">
+      <header class="topbar">
+        <button class="mobile-menu" id="mobileMenu" aria-label="打开导航"><span></span><span></span></button>
+        <div class="breadcrumb"><span>撸铁记</span><svg><use href="#i-chevron"/></svg><strong id="pageTitle">今日训练</strong></div>
+        <div class="topbar-right"><div class="api-indicator" id="apiIndicator"><span class="status-led"></span><span>正在连接</span></div><span class="topbar-divider"></span><button class="user-chip" id="userChip"><span class="avatar" id="userAvatar">U</span><span id="topUsername">训练者</span><svg><use href="#i-chevron"/></svg></button></div>
+      </header>
+      <div class="page-wrap">
+        <section id="page-dashboard" class="page active" aria-labelledby="dashboardHeading">
+          <div class="welcome-row"><div><p class="eyebrow"><span id="todayDate">TODAY · TRAIN WITH PURPOSE</span></p><h1 id="dashboardHeading">今天，练出你的<span class="accent-underline">状态。</span></h1><p class="page-subtitle">每一次认真对待身体，都会留下回响。</p></div><div class="welcome-stamp"><span class="stamp-number" id="dayNumber">15</span><span class="stamp-month" id="monthName">OCT<br>2026</span></div></div>
+          <div class="dashboard-grid">
+            <article class="hero-card">
+              <div class="hero-card-text"><span class="hero-kicker"><span class="mini-star">✳</span> YOUR NEXT REP STARTS HERE</span><h2>让目标，<br>变成今天的动作。</h2><p>不确定该怎么练？告诉 AI 教练你的状态，一起找到适合今天的节奏。</p><button class="button button-dark" data-go="coach">问问 AI 教练 <svg><use href="#i-arrow"/></svg></button></div>
+              <div class="hero-graphic" aria-hidden="true"><div class="hero-sun"></div><div class="hero-track track-1"></div><div class="hero-track track-2"></div><div class="hero-track track-3"></div><div class="hero-label">READY<br><b>SET</b><br>GO<span>↗</span></div><div class="hero-graphic-stamp">MOVE<br>BETTER</div></div>
+              <span class="hero-index">IF / 001</span>
+            </article>
+            <article class="stat-card stat-card-ink"><div class="card-topline"><span>知识库资料</span><span class="stat-symbol">↗</span></div><div class="stat-number" id="docCount">—</div><div class="stat-bottom"><span>篇已收录内容</span><button data-go="library">浏览知识库 <svg><use href="#i-arrow"/></svg></button></div><div class="stat-decoration" aria-hidden="true">LIBRARY</div></article>
+            <article class="stat-card stat-card-paper"><div class="card-topline"><span>AI 训练对话</span><span class="stat-symbol">✳</span></div><div class="stat-number" id="sessionCount">—</div><div class="stat-bottom"><span>次已创建会话</span><button data-go="coach">继续对话 <svg><use href="#i-arrow"/></svg></button></div><div class="stat-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></article>
+          </div>
+          <div class="section-heading"><div><p class="eyebrow">PICK YOUR NEXT MOVE</p><h2>现在想做什么？</h2></div><span class="section-aside">从一小步开始，也算开始。</span></div>
+          <div class="action-grid">
+            <button class="action-card action-orange" data-go="coach"><span class="action-number">A</span><span class="action-icon"><svg><use href="#i-chat"/></svg></span><span class="action-copy"><strong>问 AI 教练</strong><small>训练、饮食、恢复，随时聊聊</small></span><svg class="action-arrow"><use href="#i-arrow"/></svg></button>
+            <button class="action-card action-lime" data-go="library"><span class="action-number">B</span><span class="action-icon"><svg><use href="#i-book"/></svg></span><span class="action-copy"><strong>逛逛知识库</strong><small>从靠谱知识里找到答案</small></span><svg class="action-arrow"><use href="#i-arrow"/></svg></button>
+            <button class="action-card action-blue" data-go="profile"><span class="action-number">C</span><span class="action-icon"><svg><use href="#i-user"/></svg></span><span class="action-copy"><strong>完善训练档案</strong><small>让建议更贴近你的目标</small></span><svg class="action-arrow"><use href="#i-arrow"/></svg></button>
+          </div>
+          <div class="data-note"><span>i</span><p>训练次数、体重趋势等个人训练记录功能正在规划中；目前本页展示的是已连接后端的知识库与 AI 会话数据。</p></div>
+        </section>
+
+        <section id="page-coach" class="page" aria-labelledby="coachHeading">
+          <div class="coach-layout">
+            <aside class="session-rail"><div class="session-rail-head"><div><p class="eyebrow">YOUR TRAINING MIND</p><h1 id="coachHeading">AI 教练</h1></div><button id="newChatButton" class="icon-button icon-button-accent" aria-label="新建对话" title="新建对话"><svg><use href="#i-plus"/></svg></button></div><p class="session-intro">把问题说出来，下一步就清晰一点。</p><div class="session-list-label">最近对话 <span id="sessionListCount">0</span></div><div id="sessionList" class="session-list"><div class="session-loading">加载会话中…</div></div><div class="session-rail-foot"><span class="mini-pulse"></span> 回答基于已接入的知识库与模型</div></aside>
+            <div class="chat-panel"><div class="chat-top"><div class="coach-avatar"><svg><use href="#i-mark"/></svg><span></span></div><div><strong>你的 AI 训练搭子</strong><small>训练 · 营养 · 恢复</small></div><div class="chat-top-right"><span class="live-badge"><i></i> READY</span><button id="clearChatButton" class="icon-button subtle-icon" title="新建对话" aria-label="新建对话"><svg><use href="#i-plus"/></svg></button></div></div><div id="chatMessages" class="chat-messages" aria-live="polite"><div class="coach-welcome"><span class="welcome-spark"><svg><use href="#i-spark"/></svg></span><p class="eyebrow">LET'S GET STRONGER</p><h2>今天，想解决<br>哪个训练难题？</h2><p>可以问我动作、计划、饮食或恢复。越具体，我越能给你有用的建议。</p><div class="prompt-chips"><button data-prompt="新手一周练几次比较合适？">新手一周练几次？</button><button data-prompt="深蹲主要锻炼哪些肌群？">深蹲练哪些肌群？</button><button data-prompt="减脂期怎么安排训练和饮食？">减脂怎么安排训练？</button><button data-prompt="力量训练后如何安排恢复？">训练后怎么恢复？</button></div></div></div><div id="sourceTray" class="source-tray hidden"></div><form id="chatForm" class="chat-composer"><textarea id="chatInput" rows="1" placeholder="说说你的训练问题…（Enter 发送，Shift + Enter 换行）" aria-label="输入健身问题"></textarea><div class="composer-bottom"><span>消息仅保存在本机；AI 每轮独立回答，建议仅供参考。</span><button id="sendButton" class="send-button" type="submit" aria-label="发送"><svg><use href="#i-send"/></svg></button></div></form></div>
+          </div>
+        </section>
+
+        <section id="page-library" class="page" aria-labelledby="libraryHeading">
+          <div class="page-header-row"><div><p class="eyebrow">KNOWLEDGE THAT MOVES YOU</p><h1 id="libraryHeading">健身知识库<span class="heading-mark">✳</span></h1><p class="page-subtitle">把有用的训练知识，收进自己的工具箱。</p></div><button id="uploadTrigger" class="button button-primary"><svg><use href="#i-upload"/></svg>上传训练资料</button></div>
+          <div id="uploadPanel" class="upload-panel hidden"><div class="upload-panel-title"><div><strong>添加一份训练资料</strong><small>上传后会先保存为草稿，你可以再发布到知识库。</small></div><button id="closeUpload" class="icon-button" aria-label="关闭"><svg><use href="#i-close"/></svg></button></div><label class="drop-zone" id="dropZone"><input id="fileInput" type="file" accept=".pdf,.docx,.xlsx,.pptx"><span class="drop-icon"><svg><use href="#i-upload"/></svg></span><strong id="fileName">点击选择，或把文件拖到这里</strong><small>支持 PDF、DOCX、XLSX、PPTX</small></label><div class="upload-actions"><span id="uploadStatus" class="muted"></span><button id="uploadButton" class="button button-primary" disabled>上传资料 <svg><use href="#i-arrow"/></svg></button></div></div>
+          <div class="library-toolbar"><div class="library-count"><span class="count-accent" id="libraryCount">—</span><span>份资料</span><span class="toolbar-divider"></span><span class="muted">来自你的训练知识库</span></div><form id="searchForm" class="search-box"><svg><use href="#i-search"/></svg><input id="searchInput" placeholder="搜索动作、肌群、营养…" aria-label="搜索知识库"><button type="submit">搜索</button></form></div>
+          <div id="libraryNotice" class="inline-notice hidden"></div><div id="documentGrid" class="document-grid"><div class="empty-loading">正在取回你的训练资料…</div></div>
+          <div class="library-footnote"><span>✳</span> 发布资料后，AI 教练才能在回答中引用它。</div>
+        </section>
+
+        <section id="page-profile" class="page" aria-labelledby="profileHeading">
+          <div class="page-header-row"><div><p class="eyebrow">KNOW YOUR BASELINE</p><h1 id="profileHeading">我的训练档案</h1><p class="page-subtitle">先了解自己，才能把每一次训练安排得更合适。</p></div><div class="profile-save-state" id="profileSaveState">本机保存</div></div>
+          <div class="profile-layout"><article class="profile-card profile-identity"><div class="profile-portrait" id="profilePortrait">U</div><p class="eyebrow">ATHLETE PROFILE</p><h2 id="profileName">训练者</h2><p id="profileEmail" class="muted">—</p><div class="identity-rule"></div><div class="identity-meta"><span>账号 ID</span><b id="profileId">—</b></div><div class="identity-meta"><span>加入日期</span><b id="profileJoined">—</b></div><div class="identity-stamp">IF<br>MEMBER</div></article><form id="profileForm" class="profile-form-card"><div class="profile-form-heading"><div><p class="eyebrow">YOUR TRAINING SETTINGS</p><h2>身体与目标</h2></div><span class="local-badge">仅保存在本机</span></div><p class="profile-local-warning">训练偏好保存在本机；账号邮箱会通过 /user/update_user 同步到后端。</p><div class="profile-fields"><label>身高 <span>cm</span><input id="heightInput" type="number" min="80" max="250" placeholder="例如 175"></label><label>体重 <span>kg</span><input id="weightInput" type="number" min="25" max="300" step="0.1" placeholder="例如 72.5"></label><label class="field-full">账号邮箱 <span>用于账号联系</span><input id="profileEmailInput" type="email" placeholder="name@example.com"></label><label class="field-full">当前目标<select id="goalInput"><option value="">选择一个训练目标</option><option value="增肌">增肌 · 建立力量与肌肉</option><option value="减脂">减脂 · 稳步降低体脂</option><option value="体能提升">体能提升 · 更强韧更耐力</option><option value="保持健康">保持健康 · 养成运动习惯</option></select></label><label class="field-full">训练经验<select id="experienceInput"><option value="">选择训练经验</option><option value="刚开始">刚开始接触训练</option><option value="训练一段时间">训练过一段时间</option><option value="比较规律">已经规律训练</option></select></label></div><button type="submit" class="button button-primary">保存档案 <svg><use href="#i-check"/></svg></button></form></div><div class="profile-connection"><div><span class="connection-mark"><svg><use href="#i-spark"/></svg></span><div><strong>后端连接</strong><small id="profileApiUrl">http://localhost:8000</small></div></div><span id="profileConnectionStatus" class="connection-status"><i></i>检查中</span></div>
+        </section>
+
+        <section id="page-admin" class="page" aria-labelledby="adminHeading">
+          <div class="page-header-row admin-header"><div><p class="eyebrow">OPERATIONS / CONTROL ROOM</p><h1 id="adminHeading">管理台<span class="heading-mark">✳</span></h1><p class="page-subtitle">把用户、知识审核和团队协作放在同一个清晰的工作区。</p></div><span class="admin-role-badge" id="adminRoleBadge">权限检查中</span></div>
+          <div id="adminAccessState" class="admin-access-state hidden"></div>
+          <div id="adminWorkspace" class="admin-workspace hidden">
+            <div class="admin-kpis" id="adminKpis"><article class="admin-kpi admin-kpi-lime"><span>平台用户</span><strong id="adminUserCount">—</strong><small>已注册训练者</small></article><article class="admin-kpi admin-kpi-dark"><span>待审核资料</span><strong id="adminPendingCount">—</strong><small>需要处理的知识内容</small></article><article class="admin-kpi admin-kpi-paper"><span>团队数量</span><strong id="adminTeamCount">—</strong><small>当前协作空间</small></article><article class="admin-kpi admin-kpi-orange"><span>知识资料</span><strong id="adminDocCount">—</strong><small>PG 文档记录</small></article></div>
+            <div class="admin-tabs" role="tablist" aria-label="管理台模块"><button class="admin-tab active" data-admin-tab="overview">总览</button><button class="admin-tab" data-admin-tab="users">用户管理</button><button class="admin-tab" data-admin-tab="reviews">知识审核</button><button class="admin-tab" data-admin-tab="roles">角色权限</button><button class="admin-tab" data-admin-tab="teams">团队管理</button><button class="admin-tab" data-admin-tab="system">系统状态</button></div>
+            <div class="admin-panel active" data-admin-panel="overview"><div class="admin-panel-grid"><article class="admin-feature"><div class="admin-feature-top"><span class="eyebrow">TODAY'S CONTROL ROOM</span><span class="admin-live"><i></i> LIVE</span></div><h2>让后台动作，<br><em>跟训练一样有节奏。</em></h2><p>从一条审核任务开始，把知识库、成员和服务状态保持在可控范围内。</p><div class="admin-quick-actions"><button class="button button-dark" data-admin-jump="reviews">处理审核 <svg><use href="#i-arrow"/></svg></button><button class="button button-light" data-admin-jump="users">查看用户</button></div></article><div class="admin-summary-list"><div class="admin-summary-item"><span class="summary-icon"><svg><use href="#i-users"/></svg></span><div><strong>用户与角色</strong><small>创建账号、分配角色、维护访问边界</small></div><button data-admin-jump="users" aria-label="打开用户管理"><svg><use href="#i-arrow"/></svg></button></div><div class="admin-summary-item"><span class="summary-icon"><svg><use href="#i-book"/></svg></span><div><strong>知识审核</strong><small>处理草稿发布前的审核任务</small></div><button data-admin-jump="reviews" aria-label="打开知识审核"><svg><use href="#i-arrow"/></svg></button></div><div class="admin-summary-item"><span class="summary-icon"><svg><use href="#i-settings"/></svg></span><div><strong>基础服务</strong><small>快速确认文档、权限和图谱服务状态</small></div><button data-admin-jump="system" aria-label="打开系统状态"><svg><use href="#i-arrow"/></svg></button></div></div></div></div>
+            <div class="admin-panel" data-admin-panel="users"><div class="admin-toolbar"><div><span class="eyebrow">MEMBERS / ACCESS</span><h2>用户管理</h2></div><div class="admin-toolbar-actions"><form id="adminUserSearch" class="admin-search"><svg><use href="#i-search"/></svg><input id="adminUserKeyword" placeholder="按用户名搜索" aria-label="按用户名搜索"><button type="submit">查询</button></form><button class="button button-primary" id="adminCreateUser">新增用户 <svg><use href="#i-plus"/></svg></button></div></div><div id="adminUsersTable" class="admin-table-wrap"><div class="empty-loading">正在加载用户…</div></div><div class="admin-pagination" id="adminUsersPagination"></div></div>
+            <div class="admin-panel" data-admin-panel="reviews"><div class="admin-toolbar"><div><span class="eyebrow">KNOWLEDGE / REVIEW QUEUE</span><h2>知识审核</h2></div><div class="segmented-control" id="reviewStatusTabs"><button class="active" data-review-status="pending">待审核</button><button data-review-status="approved">已通过</button><button data-review-status="rejected">已驳回</button></div></div><div id="adminReviewsTable" class="admin-table-wrap"><div class="empty-loading">正在加载审核任务…</div></div><div class="admin-pagination" id="adminReviewsPagination"></div></div>
+            <div class="admin-panel" data-admin-panel="roles"><div class="admin-toolbar"><div><span class="eyebrow">ROLES / PERMISSIONS</span><h2>角色权限</h2></div><button class="button button-primary" id="adminCreateRole">新增角色 <svg><use href="#i-plus"/></svg></button></div><div id="adminRolesTable" class="admin-table-wrap"><div class="empty-loading">正在加载角色…</div></div><div class="permission-editor hidden" id="permissionEditor"></div></div>
+            <div class="admin-panel" data-admin-panel="teams"><div class="admin-toolbar"><div><span class="eyebrow">TEAMS / COLLABORATION</span><h2>团队管理</h2></div><button class="button button-primary" id="adminCreateTeam">新增团队 <svg><use href="#i-plus"/></svg></button></div><div id="adminTeamsTable" class="admin-table-wrap"><div class="empty-loading">正在加载团队…</div></div><div class="admin-team-members hidden" id="adminTeamMembers"></div></div>
+            <div class="admin-panel" data-admin-panel="system"><div class="admin-toolbar"><div><span class="eyebrow">SERVICE / VITALS</span><h2>系统状态</h2></div><button class="button button-light" id="adminRefreshSystem"><svg><use href="#i-arrow"/></svg>刷新状态</button></div><div id="adminSystemGrid" class="system-status-grid"><div class="empty-loading">正在检查服务…</div></div></div>
+          </div>
+        </section>
+        <footer class="page-footer"><span>撸铁记 IRON FLOW</span><span>TRAIN WITH PURPOSE <b>✳</b> REST WITH PRIDE</span></footer>
+      </div>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="./app.js" defer></script>
+</body>
+</html>
+
+
+

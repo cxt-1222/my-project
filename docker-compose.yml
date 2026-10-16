@@ -1,19 +1,39 @@
 services:
   aiagent-end:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.app
     image: aiagent-end:latest
     container_name: aiagent-end
     ports:
       - "8000:8000"
     env_file: .env
     environment:
-      - DB_HOST=mysql
-      - MILVUS_HOST=milvus
+      - POSTGRES_USER=${POSTGRES_USER:-user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-lyp82nlfxxlE}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - MONGO_URI=mongodb://${MONGO_ROOT_USERNAME:-root}:${MONGO_ROOT_PASSWORD:-lyp82nlfxxlE}@mongodb:27017/?authSource=admin
+      - RUSTFS_ENDPOINT=http://rustfs:9000
+      - RABBITMQ_URL=amqp://user:${RABBITMQ_DEFAULT_PASS:-lyp82nlfxxlE}@rabbitmq:5672/aiagent
+      - ES_HOST=http://elasticsearch:9200
+      - MILVUS_URL=http://milvus:19530
+      - NEO4J_URI=bolt://neo4j:7687
     volumes:
       - ./fileworkspace:/app/fileworkspace
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+      elasticsearch:
+        condition: service_started
       milvus:
         condition: service_started
     restart: unless-stopped
@@ -43,20 +63,19 @@ services:
   # 容器内连接(服务间): host=postgres port=5432
   # ============================================================================
   postgres:
-    # pgvector 官方镜像:内置 vector 扩展,CREATE EXTENSION vector 即可使用
     image: pgvector/pgvector:pg17
     container_name: aiagent-postgres
     environment:
-      - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=lyp82nlfxxlE
-      - POSTGRES_DB=aiagent
+      - POSTGRES_USER=${POSTGRES_USER:-user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-lyp82nlfxxlE}
+      - POSTGRES_DB=${POSTGRES_DB:-aiagent}
       - TZ=Asia/Shanghai
     ports:
-      - "5433:5432"   # 宿主机 5433,避免和本机已装的 PostgreSQL(5432) 冲突
+      - "5433:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data   # 数据持久化
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d aiagent"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -133,7 +152,7 @@ services:
       - ETCD_SNAPSHOT_COUNT=50000
     volumes:
       - etcd_data:/etcd
-    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    command: etcd --advertise-client-urls=http://etcd:2379 --listen-client-urls=http://0.0.0.0:2379 --data-dir=/etcd
     restart: unless-stopped
 
   # ============================================================================
@@ -143,7 +162,7 @@ services:
   # ============================================================================
   minio:
     # 用社区版(AGPL 免费)。注意:quay.io/minio/aistor/* 是商业版,需要付费 license
-    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z
     container_name: aiagent-minio
     environment:
       # MINIO_ACCESS_KEY / MINIO_SECRET_KEY 已废弃,新版用 ROOT 变量
@@ -173,13 +192,13 @@ services:
     image: rustfs/rustfs:latest
     container_name: aiagent-rustfs
     environment:
-      - RUSTFS_ACCESS_KEY=rustfsadmin
-      - RUSTFS_SECRET_KEY=rustfsadmin
+      - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY:?Set RUSTFS_ACCESS_KEY in .env}
+      - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:?Set RUSTFS_SECRET_KEY in .env}
     ports:
-      - "9010:9000"   # S3 API
-      - "9011:9001"   # Web 控制台(UI 路径 /rustfs/console)
+      - "9010:9000"
+      - "9011:9001"
     volumes:
-      - rustfs_data:/data   # 数据持久化
+      - rustfs_data:/data
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:9000/health"]
       interval: 10s
@@ -197,15 +216,15 @@ services:
     image: mongo:8.0
     container_name: aiagent-mongodb
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=root
-      - MONGO_INITDB_ROOT_PASSWORD=lyp82nlfxxlE
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USERNAME:-root}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-lyp82nlfxxlE}
       - TZ=Asia/Shanghai
     ports:
-      - "27018:27017"   # 宿主机 27018,避免和本机已装的 MongoDB(27017) 冲突
+      - "27018:27017"
     volumes:
-      - mongodb_data:/data/db   # 数据持久化
+      - mongodb_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "-u", "root", "-p", "lyp82nlfxxlE", "--authenticationDatabase", "admin", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      test: ["CMD-SHELL", "mongosh -u \"$${MONGO_INITDB_ROOT_USERNAME}\" -p \"$${MONGO_INITDB_ROOT_PASSWORD}\" --authenticationDatabase admin --quiet --eval \"db.adminCommand('ping').ok\""]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -220,16 +239,14 @@ services:
     image: mongo-express:latest
     container_name: aiagent-mongo-express
     environment:
-      # 连接 MongoDB:用 compose 服务名,admin 库认证
-      - ME_CONFIG_MONGODB_URL=mongodb://root:lyp82nlfxxlE@mongodb:27017/?authSource=admin
-      # mongo-express 自身的登录账号
+      - ME_CONFIG_MONGODB_URL=mongodb://${MONGO_ROOT_USERNAME:-root}:${MONGO_ROOT_PASSWORD:-lyp82nlfxxlE}@mongodb:27017/?authSource=admin
       - ME_CONFIG_BASICAUTH_USERNAME=admin
-      - ME_CONFIG_BASICAUTH_PASSWORD=lyp82nlfxxlE
+      - ME_CONFIG_BASICAUTH_PASSWORD=${MONGO_ROOT_PASSWORD:-lyp82nlfxxlE}
     ports:
-      - "8081:8081"   # Web 界面端口
+      - "8081:8081"
     depends_on:
       mongodb:
-        condition: service_healthy   # 等 MongoDB 就绪后再启动
+        condition: service_healthy
     restart: unless-stopped
 
   milvus:
@@ -254,28 +271,25 @@ services:
   # 验证: curl http://localhost:9200  返回 cluster_name / version 即正常
   # ============================================================================
   elasticsearch:
-    # 用 ./elasticsearch/Dockerfile 构建,内置 IK 分词器
-    build: ./elasticsearch
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: aiagent-elasticsearch
     environment:
-      # 单节点模式:跳过 master 选举,开发/测试用;生产要去掉配多节点集群
       - discovery.type=single-node
-      # 关闭 xpack 安全认证:免密访问(开发方便);生产必须 true + ELASTIC_PASSWORD
-      - # 开启xpack安全认证
       - xpack.security.enabled=true
-      - # 设置 elastic 超级管理员密码，自行修改
-      - ELASTIC_PASSWORD=AiAgent@123456
-      # 关闭地理 IP 数据库自动下载(离线环境会报错)
+      - ELASTIC_PASSWORD=${ES_BASIC_AUTH:?Set ES_BASIC_AUTH in .env}
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
       - ingest.geoip.downloader.enabled=false
-      # JVM 堆内存:开发 512m 够;生产建议 = 物理内存 50%,且不超 32g
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
       - cluster.name=aiagent-es
       - node.name=es-node-1
     ports:
-      - "9200:9200"   # REST API,curl/Kibana 走这里
-      - "9300:9300"   # 节点间通信(集群用),单节点用不到,保留方便扩集群
+      - "9200:9200"
+      - "9300:9300"
     volumes:
-      - es_data:/usr/share/elasticsearch/data  # 数据持久化
+      - es_data:/usr/share/elasticsearch/data
     restart: unless-stopped
 
   # ============================================================================
@@ -283,19 +297,16 @@ services:
   # 访问: http://localhost:5601  首次启动要等 1-2 分钟做初始化
   # ============================================================================
   kibana:
-    # 版本必须和 ES 一致(都是 8.15.0),否则协议不兼容连不上
-    image: docker.elastic.co/kibana/kibana:8.15.0
+    image: docker.elastic.co/kibana/kibana:8.17.0
     container_name: aiagent-kibana
     environment:
-      # ES 连接地址:用 compose 服务名(容器内部网络,不用 localhost)
-      # ES 关了 xpack.security 后,Kibana 不需要账号密码,直接连
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-      # 界面语言:中文(可选,默认英文)
+      - ELASTICSEARCH_SERVICEACCOUNTTOKEN=${KIBANA_SERVICE_ACCOUNT_TOKEN:?Set KIBANA_SERVICE_ACCOUNT_TOKEN in .env}
       - I18N_LOCALE=zh-CN
     ports:
-      - "5601:5601"  # Kibana Web 界面端口
+      - "5601:5601"
     depends_on:
-      - elasticsearch  # 等 ES 启动后再起 Kibana(只等启动,不等就绪;首次连不上 Kibana 会自动重试)
+      - elasticsearch
     restart: unless-stopped
 
   # ============================================================================
@@ -306,18 +317,16 @@ services:
     image: neo4j:5.26.0
     container_name: aiagent-neo4j
     environment:
-      # 默认账号 neo4j,密码在首次启动时初始化;之后改这里不生效,需删除 volume 重置
-      - NEO4J_AUTH=neo4j/neo4j123456
-      # JVM 堆内存:开发 512m 够;生产建议 = 物理内存 50%
+      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-neo4j123456}
       - NEO4J_server_memory_heap_initial__size=512m
       - NEO4J_server_memory_heap_max__size=512m
     ports:
-      - "7474:7474"   # HTTP 接口 + Neo4j Browser 可视化界面
-      - "7687:7687"   # Bolt 协议,后端 neo4j Python driver 走这里
+      - "7474:7474"
+      - "7687:7687"
     volumes:
-      - neo4j_data:/data   # 图数据持久化
+      - neo4j_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -u neo4j -p neo4j123456 'RETURN 1' || exit 1"]
+      test: ["CMD-SHELL", "cypher-shell -u '${NEO4J_USER:-neo4j}' -p '${NEO4J_PASSWORD:-neo4j123456}' 'RETURN 1' || exit 1"]
       interval: 10s
       timeout: 10s
       retries: 10
@@ -331,18 +340,18 @@ services:
   # 容器内连接(服务间): host=rabbitmq port=5672
   # ============================================================================
   rabbitmq:
-    image: rabbitmq:4-management   # management 标签自带 Web 管理界面(15672)
+    image: rabbitmq:4-management
     container_name: aiagent-rabbitmq
     environment:
       - RABBITMQ_DEFAULT_USER=user
-      - RABBITMQ_DEFAULT_PASS=lyp82nlfxxlE
-      - RABBITMQ_DEFAULT_VHOST=aiagent   # 默认虚拟主机,隔离不同业务
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS:-lyp82nlfxxlE}
+      - RABBITMQ_DEFAULT_VHOST=aiagent
       - TZ=Asia/Shanghai
     ports:
-      - "5672:5672"    # AMQP 协议,后端 pika/aio-pika 走这里
-      - "15672:15672"  # Web 管理界面
+      - "5672:5672"
+      - "15672:15672"
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq   # 队列、消息数据持久化
+      - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s

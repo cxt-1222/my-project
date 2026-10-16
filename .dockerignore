@@ -1,0 +1,11 @@
+.git
+.venv
+.idea
+__pycache__
+*.py[cod]
+.env
+.env.*
+!.env.example
+fileworkspace
+sources
+*.log

@@ -74,9 +74,17 @@ def neo4j_prompt(content):
                 """
 
 async def separation_entity_relationship(content) -> Neo4jSchema:
-    with_structured_output_model = model.with_structured_output(Neo4jSchema)
+    import json
+    import re
     prompt = neo4j_prompt(content)
-    return await with_structured_output_model.ainvoke(prompt)
+    resp = await model.ainvoke(prompt)
+    text = resp.content.strip()
+    # 去掉可能的 markdown 代码块包裹
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if match:
+        text = match.group(0)
+    data = json.loads(text)
+    return Neo4jSchema(**data)
 
 
 async def get_entity_relationship(doc_id: int) -> Neo4jSchema:
