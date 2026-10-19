@@ -13,6 +13,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-lyp82nlfxxlE}
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
+      - REDIS_URL=redis://:lyp82nlfxxlE@redis:6379/0
       - MONGO_URI=mongodb://${MONGO_ROOT_USERNAME:-root}:${MONGO_ROOT_PASSWORD:-lyp82nlfxxlE}@mongodb:27017/?authSource=admin
       - RUSTFS_ENDPOINT=http://rustfs:9000
       - RABBITMQ_URL=amqp://user:${RABBITMQ_DEFAULT_PASS:-lyp82nlfxxlE}@rabbitmq:5672/aiagent
@@ -23,6 +24,8 @@ services:
       - ./fileworkspace:/app/fileworkspace
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       mongodb:
         condition: service_healthy

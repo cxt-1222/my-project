@@ -18,3 +18,13 @@ class SessionRespDTO(BaseModel):
     create_at: datetime.datetime
     update_at: datetime.datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+class MessageRespDTO(BaseModel):
+    id: int
+    session_id: int
+    role: str
+    content: str
+    sources: list | dict
+    create_at: datetime.datetime
+    model_config = ConfigDict(from_attributes=True)

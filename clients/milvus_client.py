@@ -1,6 +1,6 @@
 import asyncio
 
-from pymilvus import AsyncMilvusClient
+from pymilvus import AsyncMilvusClient, DataType
 from langchain_openai import OpenAIEmbeddings
 
 from core.config import settings
@@ -147,3 +147,86 @@ async def search_milvus_data(query: str, doc_ids: list[int] | None = None):
         'msg':'向量查询成功',
         'data':res[0]
     }
+
+
+async def ensure_chat_memory_collection():
+    """Create a separate collection for user memories without touching document vectors."""
+    name = settings.CHAT_MEMORY_COLLECTION
+    if not await milvus_client.has_collection(collection_name=name):
+        schema = milvus_client.create_schema(auto_id=False, enable_dynamic_field=False)
+        schema.add_field(field_name="id", datatype=DataType.VARCHAR, is_primary=True, max_length=64)
+        schema.add_field(field_name="user_id", datatype=DataType.INT64)
+        schema.add_field(field_name="source_session_id", datatype=DataType.INT64)
+        schema.add_field(field_name="category", datatype=DataType.VARCHAR, max_length=64)
+        schema.add_field(field_name="content", datatype=DataType.VARCHAR, max_length=2000)
+        schema.add_field(field_name="vector", datatype=DataType.FLOAT_VECTOR, dim=settings.DIMENSIONS)
+        index_params = milvus_client.prepare_index_params()
+        index_params.add_index(
+            field_name="vector",
+            index_type="IVF_FLAT",
+            metric_type="COSINE",
+            params={"nlist": 128},
+        )
+        await milvus_client.create_collection(
+            collection_name=name,
+            schema=schema,
+            index_params=index_params,
+        )
+    await milvus_client.load_collection(collection_name=name)
+
+
+async def search_chat_memories(query: str, user_id: int, limit: int | None = None) -> list[dict]:
+    """Recall only the current user's long-term memories."""
+    name = settings.CHAT_MEMORY_COLLECTION
+    if not await milvus_client.has_collection(collection_name=name):
+        return []
+    vector = await embedding_text(query)
+    result = await milvus_client.search(
+        collection_name=name,
+        data=[vector],
+        anns_field="vector",
+        search_params={"metric_type": "COSINE", "params": {"nprobe": 16}},
+        limit=limit or settings.CHAT_MEMORY_RECALL_LIMIT,
+        filter=f"user_id == {int(user_id)}",
+        output_fields=["user_id", "source_session_id", "category", "content"],
+    )
+    memories = []
+    seen = set()
+    for hit in (result[0] if result else []):
+        entity = hit.get("entity", {})
+        content = entity.get("content", "")
+        if content and content not in seen:
+            seen.add(content)
+            memories.append(entity)
+    return memories
+
+
+async def upsert_chat_memory(user_id: int, session_id: int, category: str, content: str) -> None:
+    """Upsert one deduplicated user fact in the dedicated memory collection."""
+    import hashlib
+
+    normalized = " ".join(content.split())
+    memory_id = hashlib.sha256(f"{user_id}:{category}:{normalized}".encode("utf-8")).hexdigest()
+    vector = await embedding_text(normalized)
+    await milvus_client.upsert(
+        collection_name=settings.CHAT_MEMORY_COLLECTION,
+        data=[{
+            "id": memory_id,
+            "user_id": int(user_id),
+            "source_session_id": int(session_id),
+            "category": category[:64],
+            "content": normalized[:2000],
+            "vector": vector,
+        }],
+    )
+    await milvus_client.flush(collection_name=settings.CHAT_MEMORY_COLLECTION)
+
+
+async def delete_chat_memories_for_session(user_id: int, session_id: int) -> None:
+    name = settings.CHAT_MEMORY_COLLECTION
+    if await milvus_client.has_collection(collection_name=name):
+        await milvus_client.delete(
+            collection_name=name,
+            filter=f"user_id == {int(user_id)} and source_session_id == {int(session_id)}",
+        )
+        await milvus_client.flush(collection_name=name)

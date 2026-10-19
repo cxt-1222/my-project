@@ -4,8 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db, create_pg_tables as db_create_pg_tables
 from core.security import get_current_user
+from clients.chat_cache import delete_recent_messages
+from clients.milvus_client import delete_chat_memories_for_session
 from models import AiSessionModel, AiMessageModel, UserModel
-from schemas.chat import SessionCreateDTO, SessionRespDTO, SessionUpdateDTO
+from schemas.chat import MessageRespDTO, SessionCreateDTO, SessionRespDTO, SessionUpdateDTO
 
 chat_router = APIRouter(prefix='/chat', tags=['对话'])
 
@@ -54,6 +56,25 @@ async def get_session_api(session_id: int, db: AsyncSession = Depends(get_db), c
     return await _get_owned_session(db, session_id, current_user.id)
 
 
+@chat_router.get('/session/{session_id}/messages', response_model=list[MessageRespDTO])
+async def list_session_messages_api(
+    session_id: int,
+    limit: int = 40,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """查询当前用户会话中的消息，按时间正序返回最近一段上下文。"""
+    await _get_owned_session(db, session_id, current_user.id)
+    limit = max(1, min(limit, 100))
+    result = await db.execute(
+        select(AiMessageModel)
+        .where(AiMessageModel.session_id == session_id)
+        .order_by(AiMessageModel.create_at.desc(), AiMessageModel.id.desc())
+        .limit(limit)
+    )
+    return list(reversed(result.scalars().all()))
+
+
 @chat_router.put('/session/{session_id}', response_model=SessionRespDTO)
 async def update_session_api(session_id: int, dto: SessionUpdateDTO, db: AsyncSession = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """修改会话标题"""
@@ -74,4 +95,10 @@ async def delete_session_api(session_id: int, db: AsyncSession = Depends(get_db)
     await db.execute(delete(AiMessageModel).where(AiMessageModel.session_id == session_id))
     await db.delete(session)
     await db.commit()
+    await delete_recent_messages(current_user.id, session_id)
+    try:
+        await delete_chat_memories_for_session(current_user.id, session_id)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Could not delete long-term memories for deleted session")
     return {"msg": "删除成功"}

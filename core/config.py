@@ -19,6 +19,14 @@ class Settings(BaseSettings):
     POSTGRES_PORT: int = 5433
     POSTGRES_DB: str = "aiagent"
 
+    # Redis 缓存活跃会话的近期上下文；PostgreSQL 仍是消息主存储
+    REDIS_URL: str = "redis://:lyp82nlfxxlE@localhost:6380/0"
+    CHAT_CONTEXT_MESSAGE_LIMIT: int = 20
+    CHAT_CONTEXT_CACHE_TTL_SECONDS: int = 1800
+    CHAT_MEMORY_COLLECTION: str = "chat_memories"
+    CHAT_MEMORY_RECALL_LIMIT: int = 5
+    CHAT_MEMORY_MAX_PER_TURN: int = 5
+
     # MongoDB(与 Milvus 共用 DB_NAME)
     MONGO_URI: str
     DB_NAME: str
