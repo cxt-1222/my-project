@@ -12,6 +12,10 @@ const state = {
   chatMessages: {},
   pendingSources: [],
   isStreaming: false,
+  fitnessProfileOwner: null,
+  fitnessProfile: null,
+  fitnessProfileLoaded: false,
+  fitnessProfilePromise: null,
   admin: { allowed: false, tab: 'overview', usersPage: 1, reviewsPage: 1, reviewStatus: 'pending', userKeyword: '', roles: [], permissions: [], teams: [] },
 };
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -22,6 +26,73 @@ const initials = value => String(value || 'U').trim().slice(0,1).toUpperCase();
 function readStoredJson(key, fallback) { try { const value = localStorage.getItem(key); return value ? JSON.parse(value) : fallback; } catch { return fallback; } }
 function apiUrl(path) { return `${state.apiBase.replace(/\/$/, '')}${path}`; }
 function chatStorageKey() { const owner = state.user?.id ?? state.user?.username ?? 'guest'; return `ironflow_chat_messages_${owner}`; }
+function profileStorageKey() { const owner = state.user?.id ?? state.user?.username ?? 'guest'; return `ironflow_profile_${encodeURIComponent(String(owner))}`; }
+function profilePayload(profile = {}) {
+  const numberOrNull = value => {
+    if (value == null || String(value).trim() === '') return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : value;
+  };
+  return {
+    height: numberOrNull(profile.height),
+    weight: numberOrNull(profile.weight),
+    goal: profile.goal || null,
+    experience: profile.experience || null,
+  };
+}
+function syncFitnessProfile(force = false) {
+  const owner = state.user?.id ?? state.user?.username;
+  if (owner == null) return Promise.reject(new Error('登录后才能读取健身档案。'));
+  const ownerKey = String(owner);
+  if (state.fitnessProfileOwner !== ownerKey) {
+    state.fitnessProfileOwner = ownerKey;
+    state.fitnessProfile = null;
+    state.fitnessProfileLoaded = false;
+    state.fitnessProfilePromise = null;
+  }
+  if (state.fitnessProfilePromise) return state.fitnessProfilePromise;
+  if (state.fitnessProfileLoaded && !force) return Promise.resolve(state.fitnessProfile);
+
+  const loadAndMigrate = async () => {
+    const saved = await request('/fitness/profile');
+    const localKey = profileStorageKey();
+    if (saved) {
+      localStorage.removeItem(localKey);
+      return saved;
+    }
+
+    // 只迁移旧版“按账号”缓存；全局键 ironflow_profile 不归属任何已验证账号，不自动导入。
+    const legacy = readStoredJson(localKey, null);
+    if (legacy && typeof legacy === 'object' && !Array.isArray(legacy)) {
+      const migrated = await request('/fitness/profile', {
+        method: 'PUT',
+        body: JSON.stringify(profilePayload(legacy)),
+      });
+      localStorage.removeItem(localKey);
+      return migrated;
+    }
+    return null;
+  };
+
+  let trackedPromise;
+  trackedPromise = loadAndMigrate().then(profile => {
+    if (String(state.user?.id ?? state.user?.username ?? '') === ownerKey) {
+      state.fitnessProfile = profile;
+      state.fitnessProfileLoaded = true;
+    }
+    return profile;
+  }).finally(() => {
+    if (state.fitnessProfilePromise === trackedPromise) state.fitnessProfilePromise = null;
+  });
+  state.fitnessProfilePromise = trackedPromise;
+  return trackedPromise;
+}
+function resetFitnessProfileSync() {
+  state.fitnessProfileOwner = null;
+  state.fitnessProfile = null;
+  state.fitnessProfileLoaded = false;
+  state.fitnessProfilePromise = null;
+}
 function restoreChatMessages() { state.chatMessages = readStoredJson(chatStorageKey(), {}); if (!state.chatMessages || typeof state.chatMessages !== 'object' || Array.isArray(state.chatMessages)) state.chatMessages = {}; }
 function persistChatMessages() { try { localStorage.setItem(chatStorageKey(), JSON.stringify(state.chatMessages)); } catch { toast('浏览器未能保存本机聊天记录。'); } }
 function timeoutSignal(milliseconds) { if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(milliseconds); const controller = new AbortController(); window.setTimeout(() => controller.abort(), milliseconds); return controller.signal; }
@@ -32,12 +103,12 @@ function parseError(data, fallback = '请求失败') { return data?.detail || da
 async function request(path, options = {}) {
   const response = await fetch(apiUrl(path), { ...options, headers: authHeaders({'Content-Type':'application/json', ...(options.headers || {})}) });
   let data = null; try { data = await response.json(); } catch { data = null; }
-  if (response.status === 401) { state.token = ''; localStorage.removeItem('ironflow_token'); if (state.user) toast('登录已过期，请重新登录。'); showAuth(); throw new Error('登录已过期'); }
+  if (response.status === 401) { state.token = ''; resetFitnessProfileSync(); localStorage.removeItem('ironflow_token'); if (state.user) toast('登录已过期，请重新登录。'); showAuth(); throw new Error('登录已过期'); }
   if (!response.ok) throw new Error(parseError(data, `请求失败（${response.status}）`));
   return data;
 }
 function showAuth() { $('#authScreen').classList.remove('hidden'); $('#appShell').classList.add('hidden'); }
-function showApp() { $('#authScreen').classList.add('hidden'); $('#appShell').classList.remove('hidden'); updateUserUI(); navigate(state.currentPage || 'dashboard', false); checkApi(); }
+function showApp() { $('#authScreen').classList.add('hidden'); $('#appShell').classList.remove('hidden'); updateUserUI(); navigate(state.currentPage || 'dashboard', false); checkApi(); syncFitnessProfile().catch(error => console.warn('健身档案同步失败；打开档案页后可重试。', error)); }
 function updateUserUI() {
   const user = state.user || {}; const name = user.username || '训练者';
   $('#topUsername').textContent = name; $('#userAvatar').textContent = initials(name); $('#profileName').textContent = name; $('#profileEmail').textContent = user.email || '未设置邮箱'; $('#profilePortrait').textContent = initials(name); $('#profileId').textContent = user.id ?? '—'; $('#profileJoined').textContent = formatDate(user.create_at); $('#profileApiUrl').textContent = state.apiBase;
@@ -92,7 +163,7 @@ async function streamAnswer(query) {
   let sources = [];
   let completed = false;
   try {
-    const response = await fetch(apiUrl(`/ai/invoke_stream?session_id=${sessionId}&query=${encodeURIComponent(query)}&top_n=5&enable_web=false`), {headers:authHeaders(), signal:timeoutSignal(120000)});
+    const response = await fetch(apiUrl(`/ai/invoke_stream?session_id=${sessionId}&query=${encodeURIComponent(query)}&top_n=5&enable_web=false`), {method:'POST',headers:authHeaders(),signal:timeoutSignal(120000)});
     if (response.status === 401) { showAuth(); throw new Error('登录已过期'); }
     if (!response.ok) { let detail=null; try { detail=await response.json(); } catch {} throw new Error(parseError(detail,`AI 请求失败（${response.status}）`)); }
     const reader = response.body.getReader();
@@ -153,9 +224,10 @@ async function publishDocument(id){try{await request(`/knowledge_doc/publish?doc
 async function deleteDocument(id){if(!window.confirm('删除后会同步清理文档内容和索引，确定继续吗？'))return;try{await request(`/pg/del_doc?doc_id=${id}`,{method:'DELETE'});toast('资料已删除。');await loadDocuments();}catch(error){showError(error);}}
 async function loadDocDetail(id){try{const doc=await request(`/pg/check?id=${id}`);toast(`${doc.title||'资料'} · ${doc.summary||'暂无摘要'}`);}catch(error){showError(error);}}
 async function uploadFile(){const input=$('#fileInput');const file=input.files[0];if(!file)return;const button=$('#uploadButton');const status=$('#uploadStatus');button.disabled=true;status.textContent='正在上传并解析…';const form=new FormData();form.append('file',file);try{const response=await fetch(apiUrl('/restfs/upload'),{method:'POST',headers:authHeaders(),body:form});let data=null;try{data=await response.json()}catch{}if(!response.ok)throw new Error(parseError(data,`上传失败（${response.status}）`));status.textContent='上传成功，已保存为草稿。';toast('资料上传成功，可以在卡片上发布。');setTimeout(()=>{$('#uploadPanel').classList.add('hidden');loadDocuments()},600);}catch(error){status.textContent=error.message;showError(error);}finally{button.disabled=false;}}
-function loadProfile(){const saved=JSON.parse(localStorage.getItem('ironflow_profile')||'{}');$('heightInput').value=saved.height||'';$('weightInput').value=saved.weight||'';$('profileEmailInput').value=state.user?.email||'';$('goalInput').value=saved.goal||'';$('experienceInput').value=saved.experience||'';updateUserUI();checkApi();}
+function fillProfileForm(profile={}){$('#heightInput').value=profile.height??'';$('#weightInput').value=profile.weight??'';$('#goalInput').value=profile.goal??'';$('#experienceInput').value=profile.experience??'';}
+async function loadProfile(){const saveState=$('#profileSaveState');saveState.textContent='正在读取账号档案…';try{const saved=await syncFitnessProfile(true);const globalDraft=!saved?readStoredJson('ironflow_profile',null):null;const hasGlobalDraft=globalDraft&&typeof globalDraft==='object'&&!Array.isArray(globalDraft);fillProfileForm(saved|| (hasGlobalDraft?globalDraft:{}));saveState.textContent=hasGlobalDraft?'检测到旧版本机档案，请核对后手动保存':saved?'已保存到账号数据库':'尚未填写';}catch(error){const draft=readStoredJson(profileStorageKey(),{})||{};fillProfileForm(draft);saveState.textContent='云端读取失败；本机旧档案未删除';showError(error);}$('#profileEmailInput').value=state.user?.email||'';updateUserUI();checkApi();}
 async function saveAccountProfile(data){if(!state.user?.id)return;const email=(data.email||'').trim();if(!email||email===state.user.email)return;const updated=await request('/user/update_user?user_id='+encodeURIComponent(state.user.id),{method:'PUT',body:JSON.stringify({email})});state.user={...state.user,...updated};localStorage.setItem('ironflow_user',JSON.stringify(state.user));updateUserUI();}
-async function saveProfile(event){event.preventDefault();const data={height:$('heightInput').value,weight:$('weightInput').value,goal:$('goalInput').value,experience:$('experienceInput').value};const saveState=$('profileSaveState');saveState.textContent='保存中…';try{localStorage.setItem('ironflow_profile',JSON.stringify(data));await saveAccountProfile({email:$('profileEmailInput').value});saveState.textContent='已同步';toast('训练档案已保存，账号信息已同步到后端。');}catch(error){saveState.textContent='部分保存';showError(error);}}
+async function saveProfile(event){event.preventDefault();const payload=profilePayload({height:$('#heightInput').value,weight:$('#weightInput').value,goal:$('#goalInput').value,experience:$('#experienceInput').value});const saveState=$('#profileSaveState');saveState.textContent='正在保存到账号数据库…';try{const saved=await request('/fitness/profile',{method:'PUT',body:JSON.stringify(payload)});state.fitnessProfileOwner=String(state.user?.id??state.user?.username??'');state.fitnessProfile=saved;state.fitnessProfileLoaded=true;localStorage.removeItem(profileStorageKey());saveState.textContent='已保存到账号数据库';try{await saveAccountProfile({email:$('#profileEmailInput').value});toast('健身档案已保存到账号数据库，AI 问答会按登录账号读取。');}catch(error){toast('健身档案已保存；账号邮箱同步失败：'+error.message);}}catch(error){saveState.textContent='保存失败，请检查填写内容或后端连接';showError(error);}}
 function adminPermissionCodes(nodes, output=[]){(nodes||[]).forEach(node=>{output.push(node);adminPermissionCodes(node.children,output)});return output;}
 function adminStatusLabel(status){return status===1?'已通过':status===2?'已驳回':'待审核';}
 function adminStatusClass(status){return status===1?'is-approved':status===2?'is-rejected':'is-pending';}
@@ -186,7 +258,7 @@ async function adminShowMembers(id){const box=$('#adminTeamMembers');box.classLi
 async function adminAddMember(teamId){const userId=Number($('#adminMemberSelect')?.value);if(!userId)return toast('先选择要加入团队的用户。');try{const result=await request('/team/add_member',{method:'POST',body:JSON.stringify({team_id:Number(teamId),user_id:userId})});toast(result?.msg||'成员已加入团队。');await adminShowMembers(teamId);loadAdminTeams();loadAdminUsers();}catch(error){showError(error);}}
 async function adminRemoveMember(teamId,userId){if(!window.confirm('确定移除这个成员吗？'))return;try{await request(`/team/del_member?team_id=${teamId}&user_id=${userId}`,{method:'DELETE'});toast('成员已移除。');adminShowMembers(teamId);loadAdminTeams();}catch(error){showError(error);}}
 function setSelectedFile(file){if(!file)return;$('#fileName').textContent=file.name;$('#uploadButton').disabled=false;$('#uploadStatus').textContent=`${(file.size/1024/1024).toFixed(2)} MB`}
-function bindEvents(){ $('#authForm').addEventListener('submit',submitAuth); $('#authSwitch').addEventListener('click',()=>{state.authMode=state.authMode==='login'?'register':'login';updateAuthCopy()}); $('#logoutButton').addEventListener('click',()=>{state.token='';state.user=null;localStorage.removeItem('ironflow_token');localStorage.removeItem('ironflow_refresh_token');localStorage.removeItem('ironflow_user');showAuth();}); $('#saveApiBase').addEventListener('click',()=>{const value=$('#apiBase').value.trim().replace(/\/$/,'');if(!/^https?:\/\//.test(value)){toast('API 地址需要以 http:// 或 https:// 开头。');return}state.apiBase=value;localStorage.setItem('ironflow_api_base',value);updateUserUI();checkApi();toast('后端地址已保存。')}); $('#apiBase').value=state.apiBase; $$('.nav-item').forEach(item=>item.addEventListener('click',()=>navigate(item.dataset.page))); $$('.main-column').forEach(node=>node.addEventListener('click',event=>{const go=event.target.closest('[data-go]')?.dataset.go;if(go)navigate(go);const prompt=event.target.closest('[data-prompt]')?.dataset.prompt;if(prompt){$('#chatInput').value=prompt;sendChat(new Event('submit'))}const openUpload=event.target.closest('[data-open-upload]');if(openUpload)$('#uploadPanel').classList.remove('hidden');const publish=event.target.closest('[data-publish-doc]')?.dataset.publishDoc;if(publish)publishDocument(publish);const view=event.target.closest('[data-view-doc]')?.dataset.viewDoc;if(view)loadDocDetail(view);const deleteDoc=event.target.closest('[data-delete-doc]')?.dataset.deleteDoc;if(deleteDoc)deleteDocument(deleteDoc)})); $('#newChatButton').addEventListener('click',()=>createSession()); $('#clearChatButton').addEventListener('click',()=>createSession()); $('#chatForm').addEventListener('submit',sendChat); $('#chatInput').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat(event)}}); $('#chatInput').addEventListener('input',event=>{event.target.style.height='auto';event.target.style.height=`${Math.min(event.target.scrollHeight,115)}px`}); $('#sessionList').addEventListener('click',event=>{const del=event.target.closest('[data-delete-session]');if(del){event.stopPropagation();deleteSession(Number(del.dataset.deleteSession));return}const item=event.target.closest('[data-session-id]');if(item){state.activeSessionId=Number(item.dataset.sessionId);renderSessions();if(state.chatMessages[state.activeSessionId])renderChat(state.activeSessionId);else renderWelcome();loadSessionMessages(state.activeSessionId).catch(showError)}}); $('#searchForm').addEventListener('submit',event=>{event.preventDefault();loadDocuments($('#searchInput').value.trim())}); $('#uploadTrigger').addEventListener('click',()=>$('#uploadPanel').classList.toggle('hidden')); $('#closeUpload').addEventListener('click',()=>$('#uploadPanel').classList.add('hidden')); $('#fileInput').addEventListener('change',event=>setSelectedFile(event.target.files[0])); $('#uploadButton').addEventListener('click',uploadFile); $('#dropZone').addEventListener('dragover',event=>{event.preventDefault();$('#dropZone').classList.add('dragover')}); $('#dropZone').addEventListener('dragleave',()=>$('#dropZone').classList.remove('dragover')); $('#dropZone').addEventListener('drop',event=>{event.preventDefault();$('#dropZone').classList.remove('dragover');const file=event.dataTransfer.files[0];if(file){const dt=new DataTransfer();dt.items.add(file);$('#fileInput').files=dt.files;setSelectedFile(file)}}); $('#profileForm').addEventListener('submit',saveProfile); $('#mobileMenu').addEventListener('click',toggleMobileMenu); $('#mobileOverlay').addEventListener('click',closeMobileMenu); $('#userChip').addEventListener('click',()=>navigate('profile')); window.addEventListener('hashchange',()=>navigate(location.hash.slice(1),false)); }
+function bindEvents(){ $('#authForm').addEventListener('submit',submitAuth); $('#authSwitch').addEventListener('click',()=>{state.authMode=state.authMode==='login'?'register':'login';updateAuthCopy()}); $('#logoutButton').addEventListener('click',()=>{state.token='';state.user=null;resetFitnessProfileSync();localStorage.removeItem('ironflow_token');localStorage.removeItem('ironflow_refresh_token');localStorage.removeItem('ironflow_user');showAuth();}); $('#saveApiBase').addEventListener('click',()=>{const value=$('#apiBase').value.trim().replace(/\/$/,'');if(!/^https?:\/\//.test(value)){toast('API 地址需要以 http:// 或 https:// 开头。');return}state.apiBase=value;localStorage.setItem('ironflow_api_base',value);updateUserUI();checkApi();toast('后端地址已保存。')}); $('#apiBase').value=state.apiBase; $$('.nav-item').forEach(item=>item.addEventListener('click',()=>navigate(item.dataset.page))); $$('.main-column').forEach(node=>node.addEventListener('click',event=>{const go=event.target.closest('[data-go]')?.dataset.go;if(go)navigate(go);const prompt=event.target.closest('[data-prompt]')?.dataset.prompt;if(prompt){$('#chatInput').value=prompt;sendChat(new Event('submit'))}const openUpload=event.target.closest('[data-open-upload]');if(openUpload)$('#uploadPanel').classList.remove('hidden');const publish=event.target.closest('[data-publish-doc]')?.dataset.publishDoc;if(publish)publishDocument(publish);const view=event.target.closest('[data-view-doc]')?.dataset.viewDoc;if(view)loadDocDetail(view);const deleteDoc=event.target.closest('[data-delete-doc]')?.dataset.deleteDoc;if(deleteDoc)deleteDocument(deleteDoc)})); $('#newChatButton').addEventListener('click',()=>createSession()); $('#clearChatButton').addEventListener('click',()=>createSession()); $('#chatForm').addEventListener('submit',sendChat); $('#chatInput').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat(event)}}); $('#chatInput').addEventListener('input',event=>{event.target.style.height='auto';event.target.style.height=`${Math.min(event.target.scrollHeight,115)}px`}); $('#sessionList').addEventListener('click',event=>{const del=event.target.closest('[data-delete-session]');if(del){event.stopPropagation();deleteSession(Number(del.dataset.deleteSession));return}const item=event.target.closest('[data-session-id]');if(item){state.activeSessionId=Number(item.dataset.sessionId);renderSessions();if(state.chatMessages[state.activeSessionId])renderChat(state.activeSessionId);else renderWelcome();loadSessionMessages(state.activeSessionId).catch(showError)}}); $('#searchForm').addEventListener('submit',event=>{event.preventDefault();loadDocuments($('#searchInput').value.trim())}); $('#uploadTrigger').addEventListener('click',()=>$('#uploadPanel').classList.toggle('hidden')); $('#closeUpload').addEventListener('click',()=>$('#uploadPanel').classList.add('hidden')); $('#fileInput').addEventListener('change',event=>setSelectedFile(event.target.files[0])); $('#uploadButton').addEventListener('click',uploadFile); $('#dropZone').addEventListener('dragover',event=>{event.preventDefault();$('#dropZone').classList.add('dragover')}); $('#dropZone').addEventListener('dragleave',()=>$('#dropZone').classList.remove('dragover')); $('#dropZone').addEventListener('drop',event=>{event.preventDefault();$('#dropZone').classList.remove('dragover');const file=event.dataTransfer.files[0];if(file){const dt=new DataTransfer();dt.items.add(file);$('#fileInput').files=dt.files;setSelectedFile(file)}}); $('#profileForm').addEventListener('submit',saveProfile); $('#mobileMenu').addEventListener('click',toggleMobileMenu); $('#mobileOverlay').addEventListener('click',closeMobileMenu); $('#userChip').addEventListener('click',()=>navigate('profile')); window.addEventListener('hashchange',()=>navigate(location.hash.slice(1),false)); }
 function bindAdminEvents(){
   $$('.admin-tab').forEach(button=>button.addEventListener('click',()=>adminSetTab(button.dataset.adminTab)));
   $('#adminUserSearch').addEventListener('submit',event=>{event.preventDefault();state.admin.userKeyword=$('#adminUserKeyword').value.trim();state.admin.usersPage=1;loadAdminUsers();});
