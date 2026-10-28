@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clients.es_client import delete_data as es_delete_data
 from core.database import get_db, create_pg_tables, drop_pg_tables
 from core.security import can_review_doc, get_current_user, is_admin_user, require_admin
-from models import KhDocument, ReviewTaskModel, UserModel
+from models import KhDocument, ReviewTaskModel, TeamMemberModel, UserModel
 from schemas.content import DocContent
 from schemas.document import KhDocumentRespDTO, KhDocumentRespDTOUpdate
 from services.content_service import add_mongo_doc, delete_mongo_doc, update_mongo_doc
@@ -21,13 +21,13 @@ def _can_view(doc: KhDocument, user: UserModel) -> bool:
 
 # 生成表
 @pg_router.post('/create_table',description='权限操作，切勿使用')
-async def create_table_api():
+async def create_table_api(admin_user: UserModel = Depends(require_admin)):
     return await create_pg_tables(tables=[KhDocument.__table__])
 
 
 # 删除表
 @pg_router.post('/drop_table',description='权限操作，切勿使用')
-async def drop_table_api():
+async def drop_table_api(admin_user: UserModel = Depends(require_admin)):
     return await drop_pg_tables(tables=[KhDocument.__table__])
 
 
@@ -96,6 +96,18 @@ async def add_doc_api(
     current_user: UserModel = Depends(get_current_user),
 ):
     cfg.author_id = current_user.id
+    cfg.id = None
+    cfg.content_id = None
+    cfg.status = 0
+    cfg.publish_time = None
+    cfg.is_public = 0
+    if not await is_admin_user(db, current_user):
+        team_id = (
+            await db.execute(
+                select(TeamMemberModel.team_id).where(TeamMemberModel.user_id == str(current_user.id))
+            )
+        ).scalars().first()
+        cfg.team_id = int(team_id) if team_id and team_id.isdigit() else None
     doc = await create_kh_doc(db,cfg)
     # 同步 MongoDB（原 create_kh_doc 内联逻辑，编排上移 api 层）
     if cfg.content:
@@ -148,6 +160,12 @@ async def update_kh_doc_api(
         return None
     if doc.author_id != current_user.id and not await is_admin_user(db, current_user):
         raise HTTPException(status_code=403, detail="无权编辑该文档")
+    if doc.author_id == current_user.id and not await is_admin_user(db, current_user):
+        protected_fields = dto.model_fields_set.intersection(
+            {"id", "content_id", "status", "publish_time", "create_at", "author_id", "team_id", "is_public"}
+        )
+        if protected_fields:
+            raise HTTPException(status_code=403, detail="作者只能编辑文档内容，发布状态和归属由系统管理")
     # 同步 MongoDB（原 update_kh_doc 内联逻辑，先于 PG 字段更新，编排上移 api 层）
     if doc.content_id is not None and dto.content:
         mongo_cfg = DocContent(

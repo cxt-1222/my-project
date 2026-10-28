@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import create_pg_tables as db_create_pg_tables
 from core.database import get_db
-from core.security import get_current_user
+from core.security import require_admin
 from models import PermissionModel, RolePermissionModel, UserModel
 from schemas.permission import PermissionNodeDTO
 
@@ -45,7 +45,7 @@ async def _seed_permissions(db: AsyncSession) -> None:
 
 
 @permission_router.get('/create_table')
-async def create_pg_tables():
+async def create_pg_tables(admin_user: UserModel = Depends(require_admin)):
     res = await db_create_pg_tables(tables=[PermissionModel.__table__, RolePermissionModel.__table__])
     from core.database import SessionLocal
 
@@ -57,7 +57,7 @@ async def create_pg_tables():
 @permission_router.get('/tree', response_model=list[PermissionNodeDTO])
 async def permission_tree_api(
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),
+    admin_user: UserModel = Depends(require_admin),
 ):
     """权限树(全量)"""
     perms = (await db.execute(select(PermissionModel).order_by(PermissionModel.id))).scalars().all()

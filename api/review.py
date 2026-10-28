@@ -1,14 +1,24 @@
 import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.publish import mq_publish_es
 from core.database import create_pg_tables as db_create_pg_tables
 from core.database import get_db
-from core.security import REVIEWER_ROLE_CODE, can_review_doc, get_current_user, get_user_role_codes
-from models import KhDocument, ReviewTaskModel, TeamMemberModel, UserModel
+from core.security import (
+    ADMIN_ROLE_CODE,
+    REVIEWER_ROLE_CODE,
+    can_review_doc,
+    get_current_user,
+    get_user_role_codes,
+    get_user_team_ids,
+    is_admin_user,
+    require_admin,
+    require_reviewer_or_admin,
+)
+from models import KhDocument, ReviewTaskModel, UserModel
 from schemas.document import KhDocumentRespDTOUpdate
 from schemas.review import ReviewActionDTO, ReviewPageRespDTO, ReviewTaskRespDTO, SubmitReviewDTO
 from services.content_service import get_mongo_doc
@@ -18,7 +28,7 @@ review_router = APIRouter(prefix='/review', tags=['审核'])
 
 
 @review_router.get('/create_table')
-async def create_pg_tables():
+async def create_pg_tables(admin_user: UserModel = Depends(require_admin)):
     return await db_create_pg_tables(tables=[ReviewTaskModel.__table__])
 
 
@@ -32,6 +42,8 @@ async def submit_review_api(
     doc = await db.get(KhDocument, dto.doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
+    if doc.author_id != current_user.id and not await is_admin_user(db, current_user):
+        raise HTTPException(status_code=403, detail="只能提交自己的文档审核")
     if doc.status in (1, 3):
         raise HTTPException(status_code=400, detail="该文档已发布或正在审核中")
     stmt = select(ReviewTaskModel).where(
@@ -53,13 +65,24 @@ async def review_tasks_api(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserModel = Depends(require_reviewer_or_admin),
 ):
     """审核任务分页列表(每行带 can_review 标识当前用户是否有审核权限)"""
     stmt = (
         select(ReviewTaskModel, KhDocument.title, KhDocument.team_id, KhDocument.author_id)
         .outerjoin(KhDocument, KhDocument.id == ReviewTaskModel.doc_id)
     )
+    user_roles = await get_user_role_codes(db, current_user)
+    is_admin = ADMIN_ROLE_CODE in user_roles
+    is_reviewer = REVIEWER_ROLE_CODE in user_roles
+    my_team_ids: set[str] = set()
+    if not is_admin:
+        my_team_ids = await get_user_team_ids(db, current_user)
+        valid_team_ids = [team_id for team_id in my_team_ids if team_id.isdigit()]
+        if valid_team_ids:
+            stmt = stmt.where(cast(KhDocument.team_id, String).in_(valid_team_ids))
+        else:
+            stmt = stmt.where(False)
     if status == 'pending':
         stmt = stmt.where(ReviewTaskModel.review_result.is_(None))
     elif status == 'approved':
@@ -72,21 +95,11 @@ async def review_tasks_api(
     rows = (
         await db.execute(stmt.order_by(ReviewTaskModel.id.desc()).offset((page - 1) * page_size).limit(page_size))
     ).all()
-    user_roles = await get_user_role_codes(db, current_user)
-    my_team_ids: set[str] = set()
-    if 'ROLE_ADMIN' not in user_roles and REVIEWER_ROLE_CODE in user_roles:
-        my_team_ids = set(
-            (
-                await db.execute(
-                    select(TeamMemberModel.team_id).where(TeamMemberModel.user_id == str(current_user.id))
-                )
-            ).scalars().all()
-        )
     items = []
     for task, doc_title, doc_team_id, doc_author_id in rows:
-        if 'ROLE_ADMIN' in user_roles:
+        if is_admin:
             can_review = True
-        elif REVIEWER_ROLE_CODE in user_roles and doc_team_id and str(doc_team_id) in my_team_ids:
+        elif is_reviewer and doc_team_id and str(doc_team_id) in my_team_ids:
             can_review = True
         else:
             can_review = False
@@ -157,6 +170,11 @@ async def review_action_api(
 @review_router.get('/task_of_doc')
 async def task_of_doc_api(doc_id: int, db: AsyncSession = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """查询文档的审核任务及当前用户审核权限(供详情页展示审核操作)"""
+    doc = await db.get(KhDocument, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    if doc.author_id != current_user.id and not await can_review_doc(db, current_user, doc):
+        raise HTTPException(status_code=403, detail="无权查看该文档的审核信息")
     stmt = (
         select(ReviewTaskModel)
         .where(ReviewTaskModel.doc_id == doc_id)
@@ -165,7 +183,6 @@ async def task_of_doc_api(doc_id: int, db: AsyncSession = Depends(get_db), curre
     task = (await db.execute(stmt)).scalars().first()
     if not task:
         return {'task': None}
-    doc = await db.get(KhDocument, doc_id)
     can_review = task.review_result is None and await can_review_doc(db, current_user, doc)
     return {
         'task': ReviewTaskRespDTO.model_validate(task).model_copy(
@@ -175,7 +192,18 @@ async def task_of_doc_api(doc_id: int, db: AsyncSession = Depends(get_db), curre
 
 
 @review_router.get('/pending_count')
-async def pending_count_api(db: AsyncSession = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
+async def pending_count_api(db: AsyncSession = Depends(get_db), current_user: UserModel = Depends(require_reviewer_or_admin)):
     """待审核任务数"""
-    stmt = select(func.count()).select_from(ReviewTaskModel).where(ReviewTaskModel.review_result.is_(None))
+    stmt = (
+        select(func.count())
+        .select_from(ReviewTaskModel)
+        .join(KhDocument, KhDocument.id == ReviewTaskModel.doc_id)
+        .where(ReviewTaskModel.review_result.is_(None))
+    )
+    if not await is_admin_user(db, current_user):
+        team_ids = [team_id for team_id in await get_user_team_ids(db, current_user) if team_id.isdigit()]
+        if team_ids:
+            stmt = stmt.where(cast(KhDocument.team_id, String).in_(team_ids))
+        else:
+            stmt = stmt.where(False)
     return {'count': (await db.execute(stmt)).scalar() or 0}

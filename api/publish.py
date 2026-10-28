@@ -9,14 +9,16 @@ from datetime import datetime
 
 from clients.rabbitmq.producer import publish_index,publish_rag,publish_kg
 from core.database import SessionLocal
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from core.security import require_admin
+from models import UserModel
 from schemas.document import KhDocumentRespDTOUpdate
 from services.content_service import get_mongo_doc
 from services.document_service import mark_parsing, update_kh_doc
 publish_router = APIRouter(prefix='/knowledge_doc',tags=['发布文档'])
 
 @publish_router.post('/publish')
-async def publish_api(doc_id:int):
+async def publish_api(doc_id:int, admin_user: UserModel = Depends(require_admin)):
     #改变pg 中文档的状态
     dto = KhDocumentRespDTOUpdate(status=1, publish_time=datetime.now())
     async with SessionLocal() as session:

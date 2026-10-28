@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import create_pg_tables as db_create_pg_tables
 from core.database import get_db
-from core.security import get_current_user
+from core.security import get_current_user, require_admin
 from models import TeamMemberModel, TeamModel, UserModel
 from schemas.team import AddTeamDTO, AddTeamMemberDTO, TeamMemberRespDTO, TeamPageRespDTO, TeamRespDTO, UpdateTeamDTO
 
@@ -13,7 +13,7 @@ team_router = APIRouter(prefix='/team', tags=['部门团队'])
 
 # -------------------------- 建表 --------------------------
 @team_router.get('/create_table')
-async def create_pg_tables():
+async def create_pg_tables(admin_user: UserModel = Depends(require_admin)):
     return await db_create_pg_tables(
         tables=[TeamModel.__table__, TeamMemberModel.__table__]
     )
@@ -26,7 +26,7 @@ async def query_team_api(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),
+    admin_user: UserModel = Depends(require_admin),
 ):
     """按部门名称分页查询"""
     stmt = select(TeamModel)
@@ -48,7 +48,7 @@ async def query_team_api(
 async def add_team_api(
     dto: AddTeamDTO,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),
+    admin_user: UserModel = Depends(require_admin),
 ):
     """新增部门"""
     team_name = dto.team_name.strip()
@@ -70,7 +70,7 @@ async def update_team_api(
     team_id: int,
     dto: UpdateTeamDTO,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),
+    admin_user: UserModel = Depends(require_admin),
 ):
     """修改部门,只更新传入的字段"""
     team = await db.get(TeamModel, team_id)
@@ -91,7 +91,7 @@ async def update_team_api(
 
 
 @team_router.delete('/del_team')
-async def del_team_api(team_id: int, db: AsyncSession = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
+async def del_team_api(team_id: int, db: AsyncSession = Depends(get_db), admin_user: UserModel = Depends(require_admin)):
     """删除部门,同时清理其成员关联"""
     team = await db.get(TeamModel, team_id)
     if not team:
@@ -121,7 +121,7 @@ async def my_teams_api(db: AsyncSession = Depends(get_db), current_user: UserMod
 async def query_members_api(
     team_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),
+    admin_user: UserModel = Depends(require_admin),
 ):
     """查询部门成员列表"""
     team = await db.get(TeamModel, team_id)
@@ -155,7 +155,7 @@ async def query_members_api(
 async def add_member_api(
     dto: AddTeamMemberDTO,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),
+    admin_user: UserModel = Depends(require_admin),
 ):
     """新增部门成员;一个用户只能属于一个部门,若已在其他部门则自动剔除后移入"""
     team = await db.get(TeamModel, dto.team_id)
@@ -187,7 +187,7 @@ async def del_member_api(
     team_id: int,
     user_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),
+    admin_user: UserModel = Depends(require_admin),
 ):
     """删除部门成员"""
     team = await db.get(TeamModel, team_id)
