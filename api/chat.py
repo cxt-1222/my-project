@@ -8,6 +8,7 @@ from clients.chat_cache import delete_recent_messages
 from clients.milvus_client import delete_chat_memories_for_session
 from models import AiSessionModel, AiMessageModel, UserModel
 from schemas.chat import MessageRespDTO, SessionCreateDTO, SessionRespDTO, SessionUpdateDTO
+from services.chat_session_lock import chat_session_locks
 
 chat_router = APIRouter(prefix='/chat', tags=['对话'])
 
@@ -91,14 +92,20 @@ async def update_session_api(session_id: int, dto: SessionUpdateDTO, db: AsyncSe
 @chat_router.delete('/session/{session_id}')
 async def delete_session_api(session_id: int, db: AsyncSession = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """删除会话，其消息一并删除（显式删除 + 外键 ON DELETE CASCADE 双保险）"""
-    session = await _get_owned_session(db, session_id, current_user.id)
-    await db.execute(delete(AiMessageModel).where(AiMessageModel.session_id == session_id))
-    await db.delete(session)
-    await db.commit()
-    await delete_recent_messages(current_user.id, session_id)
+    lock_token = chat_session_locks.try_acquire(current_user.id, session_id)
+    if lock_token is None:
+        raise HTTPException(status_code=409, detail='该会话正在回答，完成后才能删除')
     try:
-        await delete_chat_memories_for_session(current_user.id, session_id)
-    except Exception:
-        import logging
-        logging.getLogger(__name__).exception("Could not delete long-term memories for deleted session")
-    return {"msg": "删除成功"}
+        session = await _get_owned_session(db, session_id, current_user.id)
+        await db.execute(delete(AiMessageModel).where(AiMessageModel.session_id == session_id))
+        await db.delete(session)
+        await db.commit()
+        await delete_recent_messages(current_user.id, session_id)
+        try:
+            await delete_chat_memories_for_session(current_user.id, session_id)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Could not delete long-term memories for deleted session")
+        return {"msg": "删除成功"}
+    finally:
+        chat_session_locks.release(current_user.id, session_id, lock_token)
