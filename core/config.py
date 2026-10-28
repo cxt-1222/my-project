@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     QWEN_API_KEY: str
     QWEN_BASE_URL: str
     QWEN_MODEL_NAME: str
+    QWEN_VISION_MODEL_NAME: str = ""
     EMBEDDINGS_MODEL_NAME: str
     RERANK_MODEL_NAME: str
     RERANK_URL: str
