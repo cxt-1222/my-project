@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "locked_on": "2026-10-27",
+  "sources": [
+    {
+      "dataset": "free-exercise-db-api",
+      "repository": "luisaraujoc/free-exercise-db-api",
+      "commit": "38c5670c3210f69268a0255bdb2cb3edcb596c46",
+      "metadata_license_status": "approved",
+      "media_license_status": "unverified",
+      "license_note": "上游 README 声称动作元数据为 MIT；README 同时说明视频原始来源不明。该记录仅供预览，不代表授权结论。",
+      "files": [
+        {
+          "path": "data/exercises.json",
+          "kind": "exercise",
+          "expected_sha256": "4f6e887b23e88ebcd71d510947bda839dfb7caf6876c2381b0309188ea56b48e",
+          "max_bytes": 20971520
+        }
+      ]
+    },
+    {
+      "dataset": "chisha",
+      "repository": "Fission21/chisha",
+      "commit": "ac659028f37913d7f622f5598efd25957d696b2c",
+      "metadata_license_status": "approved",
+      "media_license_status": "not_applicable",
+      "license_note": "食材数据来源混合；菜谱许可字段并非每条都有。保留来源统计，逐条许可与换算规则仍待审查。",
+      "files": [
+        {
+          "path": "data/processed/foods.json",
+          "kind": "food_records",
+          "expected_sha256": "6398ce90a5b2f612d9d759050bca9f38d39e4061bb35bd725a6a90f9938125c6",
+          "max_bytes": 20971520
+        },
+        {
+          "path": "data/processed/recipes.json",
+          "kind": "recipe_records",
+          "expected_sha256": "2e8fbbc92648ab18acce7adceb70acc534217d6fa91fdb48d37edcaeba897107",
+          "max_bytes": 20971520
+        },
+        {
+          "path": "data/processed/food_portions.json",
+          "kind": "portion_profiles",
+          "expected_sha256": "e157214d43f57d90e988687d8fb6f8740191b484cec656ee72989c108207394d",
+          "max_bytes": 20971520
+        }
+      ]
+    }
+  ]
+}

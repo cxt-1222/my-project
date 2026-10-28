@@ -5,6 +5,9 @@ from langchain_openai import OpenAIEmbeddings
 
 from core.config import settings
 
+MILVUS_DOC_ID_FILTER_BATCH_SIZE = 20
+MILVUS_SEARCH_LIMIT = 10
+
 # 创建 集合
 milvus_client = AsyncMilvusClient(
     uri=settings.MILVUS_URL,
@@ -121,31 +124,53 @@ async def milvus_insert(doc_id,meta,chunks):
     await fut
 
 
+def _chunk_doc_ids(doc_ids: list[int], batch_size: int = MILVUS_DOC_ID_FILTER_BATCH_SIZE) -> list[list[int]]:
+    """Split visible document IDs into filter expressions small enough for Milvus."""
+    return [doc_ids[i:i + batch_size] for i in range(0, len(doc_ids), batch_size)]
+
+
+def _merge_search_hits(hit_batches: list[list[dict]], limit: int = MILVUS_SEARCH_LIMIT) -> list[dict]:
+    """Merge COSINE search results from multiple filters into one global Top-K."""
+    hits = [hit for batch in hit_batches for hit in batch]
+    hits.sort(key=lambda hit: hit.get("distance", float("-inf")), reverse=True)
+    return hits[:limit]
+
+
 # 从向量数据库中进行查询相似度最接近的数据
 async def search_milvus_data(query: str, doc_ids: list[int] | None = None):
     """向量召回;doc_ids 为可见文档ID列表(None=不过滤,空列表=直接返回空)"""
     if doc_ids is not None and not doc_ids:
         return {'msg': '向量查询成功', 'data': []}
-    filter_expr = None
-    if doc_ids:
-        # content_id 形如 "{doc_id}-{chunk_index}",按前缀匹配限定可见文档
-        filter_expr = ' or '.join(f'(content_id like "{d}-%")' for d in doc_ids)
+
     vector_query = await embedding_text(query)
-    res = await milvus_client.search(
-        collection_name=settings.COLLECTION_NAME,
-        data=[vector_query],  # 查询向量
-        anns_field="vector",  # 向量字段名
-        search_params={
-            "metric_type": "COSINE",  # 度量类型应与创建索引时一致
-            "params": {"nprobe": 16}  # 搜索时考虑的聚类数量
-        },
-        limit=10,  # 返回 Top-10 最相似的结果
-        output_fields=["id",'title','content_id','content'],  # 指定返回的标量字段
-        filter=filter_expr,
-    )
+    id_batches = _chunk_doc_ids(doc_ids) if doc_ids is not None else [None]
+    hit_batches = []
+
+    for id_batch in id_batches:
+        # content_id 形如 "{doc_id}-{chunk_index}"，按前缀匹配限定可见文档。
+        # 分批构造 OR 条件，避免可见文档很多时 Milvus 过滤表达式过长而解析失败。
+        filter_expr = (
+            ' or '.join(f'(content_id like "{doc_id}-%")' for doc_id in id_batch)
+            if id_batch is not None
+            else None
+        )
+        res = await milvus_client.search(
+            collection_name=settings.COLLECTION_NAME,
+            data=[vector_query],  # 查询向量
+            anns_field="vector",  # 向量字段名
+            search_params={
+                "metric_type": "COSINE",  # 度量类型应与创建索引时一致
+                "params": {"nprobe": 16}  # 搜索时考虑的聚类数量
+            },
+            limit=MILVUS_SEARCH_LIMIT,
+            output_fields=["id", 'title', 'content_id', 'content'],
+            filter=filter_expr,
+        )
+        hit_batches.append(res[0] if res else [])
+
     return {
-        'msg':'向量查询成功',
-        'data':res[0]
+        'msg': '向量查询成功',
+        'data': _merge_search_hits(hit_batches),
     }
 
 

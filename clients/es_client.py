@@ -14,7 +14,7 @@ async def init_es():
     # 测试连通性
     if not await es.ping():
         raise RuntimeError("ES 连接失败！")
-    print("✅ ES 连接成功")
+    print("Elasticsearch connection established.")
     return es
 
 async def get_es():
