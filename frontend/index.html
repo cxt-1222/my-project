@@ -26,6 +26,7 @@
     <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5m5 5H3"/><path d="M12 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7"/></symbol>
     <symbol id="i-dumbbell" viewBox="0 0 24 24"><path d="M6 9v6m12-6v6M3 10v4m18-4v4M6 12h12"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-nutrition" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M6 4v7m3-7v7M6 8h3m-1.5 3v9m9-16c0 4-2 5-2 5v11m2-16v16"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
     <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 20 6v5c0 5-3.4 8.6-8 10-4.6-1.4-8-5-8-10V6z"/><path d="m9 12 2 2 4-4"/></symbol>
     <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
@@ -72,9 +73,11 @@
       <nav class="primary-nav" aria-label="主导航">
         <button class="nav-item active" data-page="dashboard"><svg><use href="#i-home"/></svg><span>今日训练</span><span class="nav-marker"></span></button>
         <button class="nav-item" data-page="coach"><svg><use href="#i-chat"/></svg><span>AI 教练</span><span class="nav-marker"></span></button>
+        <button class="nav-item" data-page="training"><svg><use href="#i-dumbbell"/></svg><span>训练计划</span><span class="nav-marker"></span></button>
+        <button class="nav-item" data-page="nutrition"><svg><use href="#i-nutrition"/></svg><span>营养记录</span><span class="nav-marker"></span></button>
         <button class="nav-item" data-page="library"><svg><use href="#i-book"/></svg><span>健身知识库</span><span class="nav-marker"></span></button>
         <button class="nav-item" data-page="profile"><svg><use href="#i-user"/></svg><span>我的档案</span><span class="nav-marker"></span></button>
-        <button class="nav-item nav-item-admin" data-page="admin"><svg><use href="#i-shield"/></svg><span>管理台</span><span class="nav-marker"></span></button>
+        <button class="nav-item nav-item-admin hidden" data-page="admin"><svg><use href="#i-shield"/></svg><span>管理台</span><span class="nav-marker"></span></button>
       </nav>
       <div class="sidebar-bottom">
         <div class="sidebar-tip"><span class="tip-icon"><svg><use href="#i-spark"/></svg></span><p>不必一次练到完美，<br><strong>只要比昨天多一点。</strong></p><span class="tip-stripe"></span></div>
@@ -102,23 +105,82 @@
             <article class="stat-card stat-card-paper"><div class="card-topline"><span>AI 训练对话</span><span class="stat-symbol">✳</span></div><div class="stat-number" id="sessionCount">—</div><div class="stat-bottom"><span>次已创建会话</span><button data-go="coach">继续对话 <svg><use href="#i-arrow"/></svg></button></div><div class="stat-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></article>
           </div>
           <div class="dashboard-signal-row" aria-label="训练状态概览">
-            <article class="signal-card signal-card-lime"><span class="signal-icon"><svg><use href="#i-dumbbell"/></svg></span><div><p class="eyebrow">TODAY / FOCUS</p><strong>先把今天练好</strong><small>训练计划功能即将接入</small></div><span class="signal-index">01</span></article>
+            <article class="signal-card signal-card-lime"><span class="signal-icon"><svg><use href="#i-dumbbell"/></svg></span><div><p class="eyebrow">TODAY / FOCUS</p><strong>先把今天练好</strong><small>打开训练计划，先预览再保存</small></div><span class="signal-index">01</span></article>
             <article class="signal-card signal-card-paper"><span class="signal-icon"><svg><use href="#i-check"/></svg></span><div><p class="eyebrow">CONSISTENCY</p><strong>每一次都算数</strong><small>完成一次训练，就离目标更近</small></div><span class="signal-index">02</span></article>
             <article class="signal-card signal-card-orange"><span class="signal-icon"><svg><use href="#i-spark"/></svg></span><div><p class="eyebrow">NEXT STEP</p><strong>让 AI 给你方向</strong><small>从一个具体问题开始对话</small></div><button class="signal-link" data-go="coach" aria-label="打开 AI 教练"><svg><use href="#i-arrow"/></svg></button></article>
           </div>
+          <section class="dashboard-training-progress" aria-labelledby="trainingProgressHeading">
+            <div class="section-heading"><div><p class="eyebrow">REAL TRAINING DATA</p><h2 id="trainingProgressHeading">训练进度</h2></div><button class="text-action" data-go="training">开始训练 / 查看记录 →</button></div>
+            <div id="trainingStatsGrid" class="training-stats-grid" aria-live="polite"><div class="empty-loading">正在加载训练统计…</div></div>
+            <div class="dashboard-recent-workouts"><div class="section-heading"><div><p class="eyebrow">RECENT WORKOUTS</p><h3>最近训练</h3></div></div><div id="dashboardWorkoutHistory" class="workout-history-list" aria-live="polite"><div class="empty-loading">正在加载训练记录…</div></div></div>
+          </section>
           <div class="section-heading"><div><p class="eyebrow">PICK YOUR NEXT MOVE</p><h2>现在想做什么？</h2></div><span class="section-aside">从一小步开始，也算开始。</span></div>
           <div class="action-grid">
             <button class="action-card action-orange" data-go="coach"><span class="action-number">A</span><span class="action-icon"><svg><use href="#i-chat"/></svg></span><span class="action-copy"><strong>问 AI 教练</strong><small>训练、饮食、恢复，随时聊聊</small></span><svg class="action-arrow"><use href="#i-arrow"/></svg></button>
             <button class="action-card action-lime" data-go="library"><span class="action-number">B</span><span class="action-icon"><svg><use href="#i-book"/></svg></span><span class="action-copy"><strong>逛逛知识库</strong><small>从靠谱知识里找到答案</small></span><svg class="action-arrow"><use href="#i-arrow"/></svg></button>
             <button class="action-card action-blue" data-go="profile"><span class="action-number">C</span><span class="action-icon"><svg><use href="#i-user"/></svg></span><span class="action-copy"><strong>完善训练档案</strong><small>让建议更贴近你的目标</small></span><svg class="action-arrow"><use href="#i-arrow"/></svg></button>
           </div>
-          <div class="data-note"><span>i</span><p>训练次数、体重趋势等个人训练记录功能正在规划中；目前本页展示的是已连接后端的知识库与 AI 会话数据。</p></div>
+          <div class="data-note"><span>i</span><p>训练进度仅基于当前账号已完成并保存的训练记录计算；未填写重量或体重时不会推测数据。</p></div>
         </section>
 
         <section id="page-coach" class="page" aria-labelledby="coachHeading">
           <div class="coach-layout">
             <aside class="session-rail"><div class="session-rail-head"><div><p class="eyebrow">YOUR TRAINING MIND</p><h1 id="coachHeading">AI 教练</h1></div><button id="newChatButton" class="icon-button icon-button-accent" aria-label="新建对话" title="新建对话"><svg><use href="#i-plus"/></svg></button></div><p class="session-intro">把问题说出来，下一步就清晰一点。</p><div class="session-list-label">最近对话 <span id="sessionListCount">0</span></div><div id="sessionList" class="session-list"><div class="session-loading">加载会话中…</div></div><div class="session-rail-foot"><span class="mini-pulse"></span> 回答基于已接入的知识库与模型</div></aside>
             <div class="chat-panel"><div class="chat-top"><div class="coach-avatar"><svg><use href="#i-mark"/></svg><span></span></div><div><strong>你的 AI 训练搭子</strong><small>训练 · 营养 · 恢复</small></div><div class="chat-top-right"><span class="live-badge"><i></i> READY</span><button id="clearChatButton" class="icon-button subtle-icon" title="新建对话" aria-label="新建对话"><svg><use href="#i-plus"/></svg></button></div></div><div id="chatMessages" class="chat-messages" aria-live="polite"><div class="coach-welcome"><span class="welcome-spark"><svg><use href="#i-spark"/></svg></span><p class="eyebrow">LET'S GET STRONGER</p><h2>今天，想解决<br>哪个训练难题？</h2><p>可以问我动作、计划、饮食或恢复。越具体，我越能给你有用的建议。</p><div class="prompt-chips"><button data-prompt="新手一周练几次比较合适？">新手一周练几次？</button><button data-prompt="深蹲主要锻炼哪些肌群？">深蹲练哪些肌群？</button><button data-prompt="减脂期怎么安排训练和饮食？">减脂怎么安排训练？</button><button data-prompt="力量训练后如何安排恢复？">训练后怎么恢复？</button></div></div></div><div id="sourceTray" class="source-tray hidden"></div><form id="chatForm" class="chat-composer"><textarea id="chatInput" rows="1" placeholder="说说你的训练问题…（Enter 发送，Shift + Enter 换行）" aria-label="输入健身问题"></textarea><div class="composer-bottom"><span>消息仅保存在本机；AI 每轮独立回答，建议仅供参考。</span><button id="sendButton" class="send-button" type="submit" aria-label="发送"><svg><use href="#i-send"/></svg></button></div></form></div>
+          </div>
+        </section>
+
+        <section id="page-training" class="page" aria-labelledby="trainingHeading">
+          <div class="page-header-row"><div><p class="eyebrow">PLAN / TRAIN / TRACK</p><h1 id="trainingHeading">训练计划与打卡</h1><p class="page-subtitle">生成并保存计划后，可从训练日开始训练、记录实际完成数据；只有完成并保存的训练才计入统计。</p></div></div>
+          <div class="training-layout">
+            <form id="trainingGenerateForm" class="training-form">
+              <label>你想怎么训练？<textarea id="trainingRequest" rows="3" required minlength="2" maxlength="1000" placeholder="例如：根据我的档案安排一周增肌计划"></textarea></label>
+              <div class="training-form-grid">
+                <label>可用器械 <span>选填；档案值会自动填入</span><input id="trainingEquipment" maxlength="300" placeholder="例如：哑铃、弹力带"></label>
+                <label>每周训练天数 <span>选填；档案值会自动填入</span><input id="trainingDays" type="number" min="1" max="7" placeholder="未确定"></label>
+              </div>
+              <label>身体限制或需要避开的情况 <span>选填；档案值会自动填入</span><textarea id="trainingLimitations" rows="2" maxlength="500" placeholder="例如：不做跳跃动作；如有疼痛，请先咨询专业人员"></textarea></label>
+              <div class="training-form-footer"><span id="trainingGenerateStatus" role="status">正在读取档案；未填写的条件不会被自动猜测。</span><button id="trainingGenerateButton" class="button button-primary" type="submit"><svg><use href="#i-spark"/></svg>生成计划草稿</button></div>
+            </form>
+            <div id="trainingPreview" class="training-preview" aria-live="polite"><div class="empty-state"><div><div class="empty-state-icon"><svg><use href="#i-dumbbell"/></svg></div><h3>还没有计划草稿</h3><p>填写训练要求后生成预览；生成过程不会保存计划。</p></div></div></div>
+          </div>
+          <section id="trainingWorkoutPanel" class="training-workout-panel hidden" aria-live="polite"></section>
+          <section class="training-saved-section" aria-labelledby="savedTrainingHeading"><div class="section-heading"><div><p class="eyebrow">YOUR SAVED PLANS</p><h2 id="savedTrainingHeading">已保存的计划</h2></div></div><div id="trainingSavedPlans" class="training-saved-list"><div class="empty-loading">正在加载计划…</div></div></section>
+          <section class="training-history-section" aria-labelledby="trainingHistoryHeading"><div class="section-heading"><div><p class="eyebrow">WORKOUT HISTORY</p><h2 id="trainingHistoryHeading">训练记录</h2></div></div><div id="trainingWorkoutHistory" class="workout-history-list" aria-live="polite"><div class="empty-loading">正在加载训练记录…</div></div></section>
+        </section>
+
+        <section id="page-nutrition" class="page" aria-labelledby="nutritionHeading">
+          <div class="page-header-row"><div><p class="eyebrow">FOOD / FUEL / DAILY</p><h1 id="nutritionHeading">营养记录</h1><p class="page-subtitle">手动记下每天吃了什么，看看热量和营养素合计。</p></div></div>
+          <p class="nutrition-manual-note" role="note">营养数值由你手动填写和维护；系统不会自动识别或估算。请按食物包装或你采用的记录来源填写。</p>
+          <div class="nutrition-toolbar"><label for="nutritionDate">查看日期<input id="nutritionDate" type="date" aria-label="选择饮食记录日期"></label><button id="nutritionToday" class="button button-light" type="button">回到今天</button></div>
+          <div id="nutritionSummary" class="nutrition-summary-grid" aria-live="polite"><div class="empty-loading">正在加载每日营养汇总…</div></div>
+          <section id="nutritionPhotoPanel" class="nutrition-photo-panel" aria-labelledby="nutritionPhotoHeading">
+            <div class="nutrition-photo-heading"><div><p class="eyebrow">PHOTO ESTIMATE</p><h2 id="nutritionPhotoHeading">拍照识别餐食</h2><p>图片会发送给已配置的识别服务并存入私有对象存储；识别值是估算结果，检查并确认后才会写入营养记录。</p></div><span class="local-badge">未确认不会保存</span></div>
+            <form id="nutritionPhotoForm" class="nutrition-photo-upload">
+              <label for="nutritionPhotoInput">选择餐食图片 <span>JPG、PNG、WebP，最大 10 MB</span></label>
+              <input id="nutritionPhotoInput" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" required>
+              <button id="nutritionPhotoScan" class="button button-primary" type="submit" disabled><svg><use href="#i-spark"/></svg>识别餐食</button>
+              <p id="nutritionPhotoStatus" class="nutrition-photo-status" role="status"></p>
+            </form>
+            <div id="nutritionPhotoResult" class="nutrition-photo-result" aria-live="polite"><p class="muted">选择图片后，识别结果会显示在这里供你核对。</p></div>
+          </section>
+          <div class="nutrition-layout">
+            <form id="nutritionForm" class="nutrition-form">
+              <div class="nutrition-form-heading"><div><p class="eyebrow">MANUAL ENTRY</p><h2 id="nutritionFormHeading">记录一项食物</h2></div><span class="local-badge">仅保存手动输入值</span></div>
+              <label>食物名称<input name="food_name" id="nutritionFoodName" maxlength="120" required placeholder="例如：燕麦粥"></label>
+              <div class="nutrition-form-grid">
+                <label>餐次<select name="meal_type" id="nutritionMealType" required><option value="breakfast">早餐</option><option value="lunch">午餐</option><option value="dinner">晚餐</option><option value="snack">加餐</option></select></label>
+                <label>份量<input name="amount" id="nutritionAmount" type="number" inputmode="decimal" min="0.001" max="999999999.999" step="0.001" required placeholder="例如：100"></label>
+                <label>单位<input name="unit" id="nutritionUnit" maxlength="20" required value="g" placeholder="g / ml / 份"></label>
+                <label>热量 <span>kcal</span><input name="calories_kcal" id="nutritionCalories" type="number" inputmode="decimal" min="0" max="9999999999.99" step="0.01" required placeholder="0"></label>
+                <label>蛋白质 <span>g</span><input name="protein_g" id="nutritionProtein" type="number" inputmode="decimal" min="0" max="9999999999.99" step="0.01" required placeholder="0"></label>
+                <label>碳水化合物 <span>g</span><input name="carbohydrate_g" id="nutritionCarbohydrate" type="number" inputmode="decimal" min="0" max="9999999999.99" step="0.01" required placeholder="0"></label>
+                <label>脂肪 <span>g</span><input name="fat_g" id="nutritionFat" type="number" inputmode="decimal" min="0" max="9999999999.99" step="0.01" required placeholder="0"></label>
+              </div>
+              <p id="nutritionFormError" class="nutrition-form-error" role="alert"></p>
+              <div class="nutrition-form-actions"><button id="saveNutritionRecord" class="button button-primary" type="submit"><svg><use href="#i-check"/></svg>保存记录</button><button id="cancelNutritionEdit" class="text-action hidden" type="button">取消编辑</button></div>
+            </form>
+            <section class="nutrition-records-panel" aria-labelledby="nutritionRecordsHeading"><div class="nutrition-records-heading"><div><p class="eyebrow">YOUR FOOD LOG</p><h2 id="nutritionRecordsHeading">当天记录</h2></div><span id="nutritionRecordCount" class="nutrition-record-count">0 项</span></div><div id="nutritionRecords" class="nutrition-record-list" aria-live="polite"><div class="empty-loading">正在加载饮食记录…</div></div></section>
           </div>
         </section>
 
@@ -131,8 +193,34 @@
         </section>
 
         <section id="page-profile" class="page" aria-labelledby="profileHeading">
-          <div class="page-header-row"><div><p class="eyebrow">KNOW YOUR BASELINE</p><h1 id="profileHeading">我的训练档案</h1><p class="page-subtitle">先了解自己，才能把每一次训练安排得更合适。</p></div><div class="profile-save-state" id="profileSaveState">按账号保存到数据库</div></div>
-          <div class="profile-layout"><article class="profile-card profile-identity"><div class="profile-portrait" id="profilePortrait">U</div><p class="eyebrow">ATHLETE PROFILE</p><h2 id="profileName">训练者</h2><p id="profileEmail" class="muted">—</p><div class="identity-rule"></div><div class="identity-meta"><span>账号 ID</span><b id="profileId">—</b></div><div class="identity-meta"><span>加入日期</span><b id="profileJoined">—</b></div><div class="identity-stamp">IF<br>MEMBER</div></article><form id="profileForm" class="profile-form-card"><div class="profile-form-heading"><div><p class="eyebrow">YOUR TRAINING SETTINGS</p><h2>身体与目标</h2></div><span class="local-badge">按账号保存到数据库</span></div><p class="profile-local-warning">身高、体重、训练目标和训练经验会保存到 PostgreSQL，并按当前登录账号隔离；普通与流式问答均由后端按登录身份读取，不接受浏览器请求体覆盖。旧版按账号保存在本机的档案会在首次读取时迁移；旧版全局档案不会自动归属到当前账号。账号邮箱仍通过 /user/update_user 单独同步。</p><div class="profile-fields"><label>身高 <span>cm</span><input id="heightInput" type="number" min="80" max="250" placeholder="例如 175"></label><label>体重 <span>kg</span><input id="weightInput" type="number" min="25" max="300" step="0.1" placeholder="例如 72.5"></label><label class="field-full">账号邮箱 <span>用于账号联系</span><input id="profileEmailInput" type="email" placeholder="name@example.com"></label><label class="field-full">当前目标<select id="goalInput"><option value="">健身小白</option><option value="增肌">增肌 · 建立力量与肌肉</option><option value="减脂">减脂 · 稳步降低体脂</option><option value="体能提升">体能提升 · 更强韧更耐力</option><option value="保持健康">保持健康 · 养成运动习惯</option></select></label><label class="field-full">训练经验<select id="experienceInput"><option value="">选择训练经验</option><option value="刚开始">刚开始接触训练</option><option value="训练一段时间">训练过一段时间</option><option value="比较规律">已经规律训练</option></select></label></div><button type="submit" class="button button-primary">保存档案 <svg><use href="#i-check"/></svg></button></form></div><div class="profile-connection"><div><span class="connection-mark"><svg><use href="#i-spark"/></svg></span><div><strong>后端连接</strong><small id="profileApiUrl">http://localhost:8000</small></div></div><span id="profileConnectionStatus" class="connection-status"><i></i>检查中</span></div>
+          <div class="page-header-row">
+            <div><p class="eyebrow">KNOW YOUR BASELINE</p><h1 id="profileHeading">我的训练档案</h1><p class="page-subtitle">先了解自己，才能把每一次训练安排得更合适。</p></div>
+            <div class="profile-save-state" id="profileSaveState">按账号保存到数据库</div>
+          </div>
+          <div class="profile-layout">
+            <article class="profile-card profile-identity">
+              <div class="profile-portrait" id="profilePortrait">U</div><p class="eyebrow">ATHLETE PROFILE</p><h2 id="profileName">训练者</h2><p id="profileEmail" class="muted">—</p>
+              <div class="identity-rule"></div><div class="identity-meta"><span>账号 ID</span><b id="profileId">—</b></div><div class="identity-meta"><span>加入日期</span><b id="profileJoined">—</b></div><div class="identity-stamp">IF<br>MEMBER</div>
+            </article>
+            <form id="profileForm" class="profile-form-card">
+              <div class="profile-form-heading"><div><p class="eyebrow">YOUR TRAINING SETTINGS</p><h2>身体与目标</h2></div><span class="local-badge">按账号保存到数据库</span></div>
+              <p class="profile-local-warning">档案按当前登录账号保存到 PostgreSQL，普通与流式问答均由后端按登录身份读取。年龄、性别和身体限制为选填，只作为训练背景，不用于疾病诊断。旧版按账号保存在本机的档案会在首次读取时迁移；旧版全局档案不会自动归属到当前账号。账号邮箱仍通过 /user/update_user 单独同步。</p>
+              <div class="profile-fields">
+                <label>身高 <span>cm</span><input id="heightInput" type="number" min="80" max="250" placeholder="例如 175"></label>
+                <label>体重 <span>kg</span><input id="weightInput" type="number" min="25" max="300" step="0.1" placeholder="例如 72.5"></label>
+                <label>年龄 <span>选填</span><input id="ageInput" type="number" min="13" max="100" step="1" placeholder="例如 25"></label>
+                <label>性别 <span>选填</span><select id="sexInput"><option value="">不填写</option><option value="男">男</option><option value="女">女</option><option value="不愿透露">不愿透露</option></select></label>
+                <label class="field-full">当前目标<select id="goalInput"><option value="">未填写</option><option value="增肌">增肌 · 建立力量与肌肉</option><option value="减脂">减脂 · 稳步降低体脂</option><option value="体能提升">体能提升 · 更强韧更耐力</option><option value="保持健康">保持健康 · 养成运动习惯</option></select></label>
+                <label class="field-full">训练经验<select id="experienceInput"><option value="">选择训练经验</option><option value="刚开始">刚开始接触训练</option><option value="训练一段时间">训练过一段时间</option><option value="比较规律">已经规律训练</option></select></label>
+                <label>每周训练天数 <span>1–7 天</span><input id="weeklyTrainingDaysInput" type="number" min="1" max="7" step="1" placeholder="例如 3"></label>
+                <label class="field-full">可用器械 <span>选填，最多 300 字</span><textarea id="equipmentInput" rows="2" maxlength="300" placeholder="例如：哑铃、弹力带"></textarea></label>
+                <label class="field-full">身体限制或避开事项 <span>选填，最多 500 字</span><textarea id="limitationsInput" rows="2" maxlength="500" placeholder="例如：避免跳跃动作；如有疼痛或伤病，请先咨询专业人员"></textarea></label>
+                <label class="field-full">账号邮箱 <span>用于账号联系</span><input id="profileEmailInput" type="email" placeholder="name@example.com"></label>
+              </div>
+              <button type="submit" class="button button-primary">保存档案 <svg><use href="#i-check"/></svg></button>
+            </form>
+          </div>
+          <div class="profile-connection"><div><span class="connection-mark"><svg><use href="#i-spark"/></svg></span><div><strong>后端连接</strong><small id="profileApiUrl">http://localhost:8000</small></div></div><span id="profileConnectionStatus" class="connection-status"><i></i>检查中</span></div>
         </section>
 
         <section id="page-admin" class="page" aria-labelledby="adminHeading">
@@ -154,6 +242,14 @@
     </main>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="./chat-stream-state.js" defer></script>
+  <script src="./chat-stream-render.js" defer></script>
+  <script src="./chat-draft-state.js" defer></script>
+  <script src="./chat-sse.js" defer></script>
+  <script src="./intent-routing.js" defer></script>
+  <script src="./training-workouts.js" defer></script>
+  <script src="./training-profile-prefill.js" defer></script>
+  <script src="./nutrition-tracking.js" defer></script>
   <script src="./app.js" defer></script>
 </body>
 </html>

@@ -32,6 +32,10 @@ from api.permission import permission_router
 from api.review import review_router
 from api.voice import voice_router
 from api.fitness import fitness_router
+from api.training import training_router
+from api.workout import workout_router
+from api.nutrition import nutrition_router
+from api.knowledge_maintenance import knowledge_maintenance_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -80,6 +84,10 @@ app.include_router(permission_router)
 app.include_router(review_router)
 app.include_router(voice_router)
 app.include_router(fitness_router)
+app.include_router(training_router)
+app.include_router(workout_router)
+app.include_router(nutrition_router)
+app.include_router(knowledge_maintenance_router)
 # vite 代理的 rewrite 对 WebSocket upgrade 不生效，前端 WS 会以 /api/voice/* 原样到达；
 # 挂一份 /api 前缀别名让两种路径都可用
 app.include_router(voice_router, prefix="/api")
