@@ -38,6 +38,29 @@ class ExerciseCatalogResponse(BaseModel):
     video_message: str
 
 
+class NutrientValues(BaseModel):
+    """Deterministically calculated nutrient values with an explicit basis."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    basis: Literal["per_100g", "recipe_total", "per_serving"]
+    calories_kcal: Decimal | None = None
+    protein_g: Decimal | None = None
+    carbohydrate_g: Decimal | None = None
+    fat_g: Decimal | None = None
+    missing_fields: list[str] = Field(default_factory=list)
+    complete: bool
+
+    @field_serializer(
+        "calories_kcal",
+        "protein_g",
+        "carbohydrate_g",
+        "fat_g",
+    )
+    def serialize_decimal(self, value: Decimal | None) -> float | None:
+        return float(value) if value is not None else None
+
+
 class FoodNutritionResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -49,6 +72,8 @@ class FoodNutritionResponse(BaseModel):
     raw_values: dict[str, Decimal] = Field(default_factory=dict)
     missing_fields: list[str] = Field(default_factory=list)
     complete: bool
+    per_100g: NutrientValues | None = None
+    normalization_note: str = ""
 
     @field_serializer(
         "calories_kcal",
@@ -90,6 +115,24 @@ class RecipeIngredientResponse(BaseModel):
         return float(value) if value is not None else None
 
 
+class RecipeNutritionIngredientIssue(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    position: int
+    name: str
+    reason: str
+
+
+class RecipeNutritionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total: NutrientValues
+    per_serving: NutrientValues
+    missing_ingredients: list[RecipeNutritionIngredientIssue] = Field(default_factory=list)
+    calculation: str
+    complete: bool
+
+
 class RecipeCatalogResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -102,6 +145,7 @@ class RecipeCatalogResponse(BaseModel):
     source_revision: str
     source_license: str
     ingredients: list[RecipeIngredientResponse] = Field(default_factory=list)
+    nutrition: RecipeNutritionResponse
 
     @field_serializer("servings")
     def serialize_servings(self, value: Decimal) -> float:

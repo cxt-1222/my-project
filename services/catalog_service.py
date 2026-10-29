@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 from typing import Any
 
@@ -23,7 +23,10 @@ from schemas.catalog import (
     ExerciseVideoResponse,
     FoodCatalogResponse,
     FoodNutritionResponse,
+    NutrientValues,
     RecipeCatalogResponse,
+    RecipeNutritionIngredientIssue,
+    RecipeNutritionResponse,
     RecipeIngredientResponse,
 )
 
@@ -35,6 +38,14 @@ _REQUIRED_NUTRIENTS = {
     "carbohydrate_g": "CHO",
     "fat_g": "fat",
 }
+_INGREDIENT_UNIT_TO_GRAMS = {
+    "g": Decimal("1"),
+    "克": Decimal("1"),
+    "kg": Decimal("1000"),
+    "千克": Decimal("1000"),
+}
+_RECIPE_NUTRIENT_PRECISION = Decimal("0.000001")
+_APPROVED_INGREDIENT_MATCHES = {"exact", "approved_alias"}
 
 
 def _normalize_name(value: str) -> str:
@@ -260,6 +271,148 @@ def _decimal_or_none(value: Any) -> Decimal | None:
     return result if result.is_finite() else None
 
 
+async def _approved_foods_by_id(
+    db: AsyncSession,
+    food_ids: set[int],
+) -> dict[int, FoodCatalogModel]:
+    if not food_ids:
+        return {}
+    rows = (await db.execute(
+        select(FoodCatalogModel)
+        .join(DatasetImportModel, DatasetImportModel.id == FoodCatalogModel.import_id)
+        .where(
+            FoodCatalogModel.id.in_(food_ids),
+            FoodCatalogModel.record_status == "active",
+            FoodCatalogModel.license_status == "approved",
+            *_approved_import_filters(),
+        )
+    )).scalars().all()
+    return {row.id: row for row in rows}
+
+
+def _rounded(value: Decimal | None) -> Decimal | None:
+    if value is None:
+        return None
+    return value.quantize(_RECIPE_NUTRIENT_PRECISION, rounding=ROUND_HALF_UP)
+
+
+def _nutrient_values(
+    *,
+    basis: str,
+    totals: dict[str, Decimal | None],
+    missing_fields: list[str],
+) -> NutrientValues:
+    return NutrientValues(
+        basis=basis,
+        calories_kcal=_rounded(totals["calories_kcal"]),
+        protein_g=_rounded(totals["protein_g"]),
+        carbohydrate_g=_rounded(totals["carbohydrate_g"]),
+        fat_g=_rounded(totals["fat_g"]),
+        missing_fields=missing_fields,
+        complete=not missing_fields,
+    )
+
+
+def calculate_recipe_nutrition(
+    recipe: RecipeCatalogModel,
+    ingredients: list[Any],
+    approved_foods: dict[int, FoodCatalogModel],
+) -> RecipeNutritionResponse:
+    """Calculate nutrients only from matched approved foods with gram amounts.
+
+    A nutrient is reported only when every ingredient supplies it on a reliable
+    per-100g basis. Incomplete data yields ``None`` instead of a partial total.
+    Final values use ROUND_HALF_UP with six decimal places.
+    """
+    issues: list[RecipeNutritionIngredientIssue] = []
+    weighted: list[tuple[FoodCatalogModel, Decimal]] = []
+    for ingredient in ingredients:
+        amount = _decimal_or_none(getattr(ingredient, "amount", None))
+        unit = str(getattr(ingredient, "unit", "") or "").strip().casefold()
+        reason = ""
+        if getattr(ingredient, "match_status", None) not in _APPROVED_INGREDIENT_MATCHES:
+            reason = "食材匹配关系尚未获准"
+        elif amount is None or amount <= 0:
+            reason = "食材数量缺失或无效"
+        elif unit not in _INGREDIENT_UNIT_TO_GRAMS:
+            reason = f"无法将单位 {unit or '未提供'} 可靠换算为克"
+        else:
+            food_id = getattr(ingredient, "food_id", None)
+            food = approved_foods.get(food_id) if food_id is not None else None
+            if food is None:
+                reason = "关联食材未获准或已停用"
+            elif food.nutrition_basis != "per_100g":
+                reason = "关联食材没有可靠的每 100 克营养基准"
+            else:
+                weighted.append((food, amount * _INGREDIENT_UNIT_TO_GRAMS[unit]))
+        if reason:
+            issues.append(RecipeNutritionIngredientIssue(
+                position=int(getattr(ingredient, "position", 0)),
+                name=str(getattr(ingredient, "name", "") or "未命名食材"),
+                reason=reason,
+            ))
+
+    totals: dict[str, Decimal | None] = {
+        key: None
+        for key in _REQUIRED_NUTRIENTS
+    }
+    missing_fields: list[str] = []
+    if not ingredients:
+        missing_fields = list(_REQUIRED_NUTRIENTS)
+    elif not issues:
+        for canonical, source_key in _REQUIRED_NUTRIENTS.items():
+            nutrient_values: list[Decimal] = []
+            for food, grams in weighted:
+                raw_value = _decimal_or_none((food.nutrients_raw or {}).get(source_key))
+                if raw_value is None:
+                    break
+                nutrient_values.append(raw_value * grams / Decimal("100"))
+            if len(nutrient_values) == len(weighted) and nutrient_values:
+                totals[canonical] = sum(nutrient_values, Decimal("0"))
+            else:
+                missing_fields.append(canonical)
+    else:
+        # Omitting a known ingredient would make any recipe total misleading.
+        missing_fields = list(_REQUIRED_NUTRIENTS)
+
+    total_values = _nutrient_values(
+        basis="recipe_total",
+        totals=totals,
+        missing_fields=missing_fields,
+    )
+    servings = _decimal_or_none(recipe.servings)
+    if servings is not None and servings > 0 and not any(
+        value is None for value in totals.values()
+    ):
+        per_serving_values = {
+            key: value / servings
+            for key, value in totals.items()
+        }
+        per_serving = _nutrient_values(
+            basis="per_serving",
+            totals=per_serving_values,
+            missing_fields=[],
+        )
+    else:
+        per_serving = _nutrient_values(
+            basis="per_serving",
+            totals={key: None for key in _REQUIRED_NUTRIENTS},
+            missing_fields=list(missing_fields),
+        )
+    complete = total_values.complete and per_serving.complete and not issues
+    return RecipeNutritionResponse(
+        total=total_values,
+        per_serving=per_serving,
+        missing_ingredients=issues,
+        calculation=(
+            "仅使用已获准食材、每 100 克营养值和明确克数；"
+            "总和 = Σ(营养值 × 克数 ÷ 100)，每份值 = 总和 ÷ 菜谱份数，"
+            "最终按 ROUND_HALF_UP 保留 6 位小数。"
+        ),
+        complete=complete,
+    )
+
+
 def _food_nutrition(row: FoodCatalogModel) -> FoodNutritionResponse:
     raw: dict[str, Decimal] = {}
     for key, raw_value in (row.nutrients_raw or {}).items():
@@ -273,6 +426,23 @@ def _food_nutrition(row: FoodCatalogModel) -> FoodNutritionResponse:
     missing = [key for key, nutrient_value in values.items() if nutrient_value is None]
     if row.nutrition_basis == "unknown":
         missing = list(_REQUIRED_NUTRIENTS)
+    normalized = None
+    if row.nutrition_basis == "per_100g":
+        normalized = NutrientValues(
+            basis="per_100g",
+            calories_kcal=values["calories_kcal"],
+            protein_g=values["protein_g"],
+            carbohydrate_g=values["carbohydrate_g"],
+            fat_g=values["fat_g"],
+            missing_fields=missing,
+            complete=not missing,
+        )
+        normalization_note = "原始数据已按每 100 克计量，未进行额外换算。"
+    else:
+        normalization_note = (
+            f"原始计量基准为 {row.nutrition_basis}，缺少可靠的克重换算依据，"
+            "不提供每 100 克营养值。"
+        )
     return FoodNutritionResponse(
         basis=row.nutrition_basis,
         calories_kcal=values["calories_kcal"],
@@ -282,6 +452,8 @@ def _food_nutrition(row: FoodCatalogModel) -> FoodNutritionResponse:
         raw_values=raw,
         missing_fields=missing,
         complete=not missing,
+        per_100g=normalized,
+        normalization_note=normalization_note,
     )
 
 
@@ -366,8 +538,25 @@ async def list_recipes(
             food_upstream_id=ingredient.food_upstream_id,
             match_status=ingredient.match_status,
         ))
+    approved_foods = await _approved_foods_by_id(db, {
+        ingredient.food_id
+        for ingredient in ingredients
+        if ingredient.food_id is not None
+    })
+    raw_ingredients: dict[int, list[Any]] = {}
+    for ingredient in ingredients:
+        raw_ingredients.setdefault(ingredient.recipe_id, []).append(ingredient)
     return [
-        _recipe_response(row, import_row, grouped.get(row.id, []))
+        _recipe_response(
+            row,
+            import_row,
+            grouped.get(row.id, []),
+            calculate_recipe_nutrition(
+                row,
+                raw_ingredients.get(row.id, []),
+                approved_foods,
+            ),
+        )
         for row, import_row in rows
     ]
 
@@ -376,6 +565,7 @@ def _recipe_response(
     row: RecipeCatalogModel,
     import_row: DatasetImportModel,
     ingredients: list[RecipeIngredientResponse],
+    nutrition: RecipeNutritionResponse,
 ) -> RecipeCatalogResponse:
     if row.servings is None:
         raise HTTPException(status_code=409, detail="菜谱份数缺失，不能作为可计算目录记录")
@@ -389,6 +579,7 @@ def _recipe_response(
         source_revision=row.source_revision,
         source_license=row.source_license,
         ingredients=ingredients,
+        nutrition=nutrition,
     )
 
 
@@ -419,6 +610,11 @@ async def get_recipe(
         .where(RecipeIngredientModel.recipe_id == row.id)
         .order_by(RecipeIngredientModel.position)
     )).scalars().all()
+    approved_foods = await _approved_foods_by_id(db, {
+        ingredient.food_id
+        for ingredient in ingredients
+        if ingredient.food_id is not None
+    })
     return _recipe_response(row, import_row, [
         RecipeIngredientResponse(
             position=ingredient.position,
@@ -431,7 +627,7 @@ async def get_recipe(
             match_status=ingredient.match_status,
         )
         for ingredient in ingredients
-    ])
+    ], calculate_recipe_nutrition(row, ingredients, approved_foods))
 
 
 def approved_source_document_query(

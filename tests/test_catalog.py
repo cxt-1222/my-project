@@ -15,6 +15,7 @@ from services.catalog_service import (
     _food_nutrition,
     _videos_by_exercise,
     approved_source_document_query,
+    calculate_recipe_nutrition,
     exercise_query,
     food_query,
     recipe_query,
@@ -143,10 +144,22 @@ class CatalogResponseTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(incomplete.carbohydrate_g)
         self.assertIn("carbohydrate_g", incomplete.missing_fields)
         self.assertIn("fat_g", incomplete.missing_fields)
+        self.assertFalse(incomplete.per_100g.complete)
 
         serialized = FoodNutritionResponse.model_validate(incomplete).model_dump(mode="json")
         self.assertIsNone(serialized["carbohydrate_g"])
         self.assertEqual(serialized["protein_g"], 5.0)
+
+    def test_food_per_100g_is_exposed_only_for_verified_basis(self):
+        verified = _food_nutrition(food_row())
+        self.assertIsNotNone(verified.per_100g)
+        self.assertEqual(verified.per_100g.basis, "per_100g")
+        self.assertEqual(verified.per_100g.protein_g, Decimal("16.9"))
+        self.assertIn("未进行额外换算", verified.normalization_note)
+
+        serving = _food_nutrition(food_row(nutrition_basis="per_serving"))
+        self.assertIsNone(serving.per_100g)
+        self.assertIn("缺少可靠的克重换算依据", serving.normalization_note)
 
     async def test_only_approved_verified_and_allowed_video_is_returned(self):
         approved_media = SimpleNamespace(
@@ -189,6 +202,104 @@ class CatalogResponseTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as raised:
             await get_food(db, 5)
         self.assertEqual(raised.exception.status_code, 404)
+
+
+class RecipeNutritionCalculationTests(unittest.TestCase):
+    def test_recipe_totals_use_decimal_gram_proportions_and_servings(self):
+        recipe = SimpleNamespace(servings=Decimal("3"))
+        ingredients = [
+            SimpleNamespace(
+                position=0,
+                name="Oats",
+                amount=Decimal("100"),
+                unit="g",
+                food_id=5,
+                match_status="exact",
+            ),
+            SimpleNamespace(
+                position=1,
+                name="Milk",
+                amount=Decimal("50"),
+                unit="克",
+                food_id=6,
+                match_status="approved_alias",
+            ),
+        ]
+        foods = {
+            5: food_row(),
+            6: food_row(
+                id=6,
+                nutrients_raw={
+                    "energyKCal": "60",
+                    "protein": "3.2",
+                    "CHO": "4.8",
+                    "fat": "3.4",
+                },
+            ),
+        }
+
+        result = calculate_recipe_nutrition(recipe, ingredients, foods)
+
+        self.assertTrue(result.complete)
+        self.assertEqual(result.total.calories_kcal, Decimal("419.000000"))
+        self.assertEqual(result.total.protein_g, Decimal("18.500000"))
+        self.assertEqual(result.total.carbohydrate_g, Decimal("68.700000"))
+        self.assertEqual(result.total.fat_g, Decimal("8.600000"))
+        self.assertEqual(result.per_serving.calories_kcal, Decimal("139.666667"))
+        self.assertIn("ROUND_HALF_UP", result.calculation)
+        self.assertEqual(result.missing_ingredients, [])
+
+    def test_missing_food_or_incompatible_unit_blocks_recipe_total(self):
+        recipe = SimpleNamespace(servings=Decimal("2"))
+        ingredients = [
+            SimpleNamespace(
+                position=0,
+                name="Oats",
+                amount=Decimal("50"),
+                unit="g",
+                food_id=5,
+                match_status="exact",
+            ),
+            SimpleNamespace(
+                position=1,
+                name="Milk",
+                amount=Decimal("1"),
+                unit="cup",
+                food_id=6,
+                match_status="fuzzy",
+            ),
+        ]
+
+        result = calculate_recipe_nutrition(recipe, ingredients, {5: food_row()})
+
+        self.assertFalse(result.complete)
+        self.assertIsNone(result.total.calories_kcal)
+        self.assertIsNone(result.per_serving.protein_g)
+        self.assertEqual(len(result.missing_ingredients), 1)
+        self.assertEqual(result.missing_ingredients[0].name, "Milk")
+        self.assertIn("尚未获准", result.missing_ingredients[0].reason)
+        self.assertIn("calories_kcal", result.total.missing_fields)
+
+    def test_unverified_food_basis_marks_each_nutrient_missing(self):
+        recipe = SimpleNamespace(servings=Decimal("1"))
+        ingredients = [SimpleNamespace(
+            position=0,
+            name="Oats",
+            amount=Decimal("50"),
+            unit="g",
+            food_id=5,
+            match_status="exact",
+        )]
+        foods = {5: food_row(nutrition_basis="per_serving")}
+
+        result = calculate_recipe_nutrition(recipe, ingredients, foods)
+
+        self.assertFalse(result.complete)
+        self.assertEqual(
+            set(result.total.missing_fields),
+            {"calories_kcal", "protein_g", "carbohydrate_g", "fat_g"},
+        )
+        self.assertIn("每 100 克营养基准", result.missing_ingredients[0].reason)
 
 
 class SourceLimitedAITests(unittest.IsolatedAsyncioTestCase):
