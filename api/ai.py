@@ -1,10 +1,10 @@
 import asyncio
 import json
 import re
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
@@ -24,6 +24,10 @@ from models.dataset_catalog import ExerciseCatalogModel, KnowledgeSourceMappingM
 from schemas.fitness_profile import FitnessProfile
 from services.fitness_profile_service import get_fitness_profile
 from services.chat_session_lock import chat_session_locks
+from services.catalog_service import (
+    approved_source_document_ids,
+    catalog_source_references_by_document,
+)
 
 ai_router = APIRouter(prefix='/ai', tags=['LLM'])
 
@@ -299,8 +303,10 @@ async def ai_invoke(
     query: str,
     top_n: int = 5,
     enable_web: bool = False,
-        #会话id：能够实现同一会话进行管理 实现上下文记忆
+    #会话id：能够实现同一会话进行管理 实现上下文记忆
     session_id: int | None = None,
+    dataset: Annotated[str | None, Query(max_length=80)] = None,
+    source_record_id: Annotated[str | None, Query(max_length=160)] = None,
     profile_request: Any = Body(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
@@ -308,7 +314,12 @@ async def ai_invoke(
     """问答入口；档案从当前登录用户数据库读取，旧请求体仅为兼容而忽略。"""
     try:
         # 兼容旧客户端仍发送的 profile 请求体，但档案始终从当前登录账号的数据库记录读取。
-        return await _do_invoke(query, top_n, enable_web, session_id, db, current_user)
+        if dataset is None and source_record_id is None:
+            return await _do_invoke(query, top_n, enable_web, session_id, db, current_user)
+        return await _do_invoke(
+            query, top_n, enable_web, session_id, db, current_user,
+            dataset=dataset, source_record_id=source_record_id,
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -590,13 +601,24 @@ def _requests_personal_fitness_context(query: str) -> bool:
     return False
 
 
-async def _prepare_materials(query: str, top_n: int, enable_web: bool, db: AsyncSession, current_user: UserModel):
+async def _prepare_materials(
+    query: str,
+    top_n: int,
+    enable_web: bool,
+    db: AsyncSession,
+    current_user: UserModel,
+    *,
+    dataset: str | None = None,
+    source_record_id: str | None = None,
+):
     """检索 + 融合 + 精排 + 联网兜底,返回 (context, sources)。
 
     context 喂给 LLM,sources 下发前端;两者用同一套 [n] 编号对齐。
     """
+    if source_record_id and not dataset:
+        raise HTTPException(status_code=400, detail="使用 source_record_id 时必须同时指定 dataset")
     # 可见文档ID:仅公开或本人的文档参与召回
-    visible_doc_ids = [
+    visible_doc_ids = {
         int(x)
         for x in (
             await db.execute(
@@ -605,15 +627,31 @@ async def _prepare_materials(query: str, top_n: int, enable_web: bool, db: Async
                 )
             )
         ).scalars().all()
-    ]
+    }
+    source_scope_active = bool(dataset or source_record_id)
+    if source_scope_active:
+        visible_doc_ids &= await approved_source_document_ids(
+            db,
+            dataset=dataset,
+            source_record_id=source_record_id,
+        )
     # 向量召回(按可见文档过滤)
-    milvus_data = await search_milvus_data(query, visible_doc_ids)
+    milvus_data = await search_milvus_data(query, sorted(visible_doc_ids))
     # 关键词召回(ES 内按可见性过滤)
     es = await get_es()
     es_data = await search_data(query, es, current_user.id)
 
     milvus_hits = milvus_data.get('data', []) if isinstance(milvus_data, dict) else milvus_data
     es_hits = es_data if isinstance(es_data, list) else es_data.get('data', [])
+    if source_scope_active:
+        # ES currently filters by account visibility only. Apply the resolved
+        # dataset/source scope before fusion so excluded text never reaches the
+        # reranker or the model prompt.
+        es_hits = [
+            hit for hit in es_hits
+            if str(hit.get('_id', '')).isdigit()
+            and int(hit['_id']) in visible_doc_ids
+        ]
 
     # RRF 粗融合
     rrf_data = rrf_fusion(es_hits, milvus_hits)
@@ -627,6 +665,11 @@ async def _prepare_materials(query: str, top_n: int, enable_web: bool, db: Async
         if _is_exercise_detail_query(query)
         else []
     )
+    if source_scope_active:
+        catalog_matches = [
+            match for match in catalog_matches
+            if int(match[1].id) in visible_doc_ids
+        ]
     strict_exercise_detail = _is_strict_exercise_detail_request(query)
     catalog_context_matches = catalog_matches
     if strict_exercise_detail and catalog_matches:
@@ -652,7 +695,11 @@ async def _prepare_materials(query: str, top_n: int, enable_web: bool, db: Async
 
     # 联网兜底判定:开了开关且知识库无召回或最高相关分低于阈值
     max_score = max((item['relevance_score'] for item in rerank_data), default=0.0)
-    use_web = enable_web and (not rerank_data or max_score < settings.WEB_SEARCH_MIN_SCORE)
+    use_web = (
+        enable_web
+        and not source_scope_active
+        and (not rerank_data or max_score < settings.WEB_SEARCH_MIN_SCORE)
+    )
     web_results = await web_search(query) if use_web else []
 
     # 文档元信息(标题 + 可下载 key)
@@ -663,6 +710,11 @@ async def _prepare_materials(query: str, top_n: int, enable_web: bool, db: Async
             d.id: d
             for d in (await db.execute(select(KhDocument).where(KhDocument.id.in_(doc_ids)))).scalars().all()
         }
+    catalog_sources = (
+        await catalog_source_references_by_document(db, doc_ids)
+        if source_scope_active
+        else {}
+    )
 
     # 统一编号:先知识库资料,后网页资料;编号同时用于喂给 LLM 的资料块与前端引用来源
     materials: list[str] = []
@@ -688,6 +740,7 @@ async def _prepare_materials(query: str, top_n: int, enable_web: bool, db: Async
             'fileKey': file_key,
             'sourceType': 'doc',
             'url': None,
+            'catalogSource': catalog_sources.get(int(doc_id)) if doc_id.isdigit() else None,
         })
     for page in web_results:
         idx += 1
@@ -869,6 +922,7 @@ async def _extract_and_store_chat_memories(query: str, user_id: int, session_id:
 async def _do_invoke(
     query: str, top_n: int, enable_web: bool, session_id: int | None,
     db: AsyncSession, current_user: UserModel,
+    *, dataset: str | None = None, source_record_id: str | None = None,
 ):
     knowledge_only = _is_knowledge_only_request(query)
     use_personal_context = not knowledge_only and _requests_personal_fitness_context(query)
@@ -877,7 +931,8 @@ async def _do_invoke(
     profile = await _load_account_fitness_profile(db, current_user) if use_personal_context else None
     await _save_message(db, current_user.id, session_id, 'user', query)
     context, sources = await _prepare_materials(
-        query, top_n, enable_web and not knowledge_only, db, current_user
+        query, top_n, enable_web and not knowledge_only, db, current_user,
+        dataset=dataset, source_record_id=source_record_id,
     )
     response = await model.ainvoke(_build_messages(query, context, history, memories, profile))
     answer = response.content or ''
@@ -901,6 +956,9 @@ async def _do_invoke_stream(
     session_id: int | None,
     db: AsyncSession,
     current_user: UserModel,
+    *,
+    dataset: str | None = None,
+    source_record_id: str | None = None,
 ):
     """共享流式问答实现；健身档案统一从当前登录账号的数据库记录读取。"""
     lock_token = None
@@ -921,7 +979,8 @@ async def _do_invoke_stream(
         profile = await _load_account_fitness_profile(db, current_user) if use_personal_context else None
         await _save_message(db, current_user.id, session_id, 'user', query)
         context, sources = await _prepare_materials(
-            query, top_n, enable_web and not knowledge_only, db, current_user
+            query, top_n, enable_web and not knowledge_only, db, current_user,
+            dataset=dataset, source_record_id=source_record_id,
         )
     except HTTPException:
         release_session_lock()
@@ -974,11 +1033,18 @@ async def ai_invoke_stream(
     top_n: int = 5,
     enable_web: bool = False,
     session_id: int | None = None,
+    dataset: Annotated[str | None, Query(max_length=80)] = None,
+    source_record_id: Annotated[str | None, Query(max_length=160)] = None,
     db: AsyncSession = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
     """兼容原有 GET SSE 调用；档案从当前登录账号的数据库读取。"""
-    return await _do_invoke_stream(query, top_n, enable_web, session_id, db, current_user)
+    if dataset is None and source_record_id is None:
+        return await _do_invoke_stream(query, top_n, enable_web, session_id, db, current_user)
+    return await _do_invoke_stream(
+        query, top_n, enable_web, session_id, db, current_user,
+        dataset=dataset, source_record_id=source_record_id,
+    )
 
 
 @ai_router.post('/invoke_stream')
@@ -987,9 +1053,16 @@ async def ai_invoke_stream_with_profile(
     top_n: int = 5,
     enable_web: bool = False,
     session_id: int | None = None,
+    dataset: Annotated[str | None, Query(max_length=80)] = None,
+    source_record_id: Annotated[str | None, Query(max_length=160)] = None,
     profile_request: Any = Body(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
     """兼容旧 POST 客户端请求体；请求体档案不可信，统一从数据库读取。"""
-    return await _do_invoke_stream(query, top_n, enable_web, session_id, db, current_user)
+    if dataset is None and source_record_id is None:
+        return await _do_invoke_stream(query, top_n, enable_web, session_id, db, current_user)
+    return await _do_invoke_stream(
+        query, top_n, enable_web, session_id, db, current_user,
+        dataset=dataset, source_record_id=source_record_id,
+    )
