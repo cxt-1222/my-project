@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 from api.knowledge_maintenance import knowledge_maintenance_router
 from core.security import require_admin
+from schemas.knowledge_maintenance import KnowledgeCleanupPreviewResponse
 from services import knowledge_cleanup_service
 from services.knowledge_cleanup_service import _build_report
 
@@ -44,6 +45,10 @@ def test_cleanup_preview_contains_counts_without_document_bodies():
     assert report["documents"][0]["cleanup_classification"] == "unclassified"
     assert any("来源映射不明确" in blocker for blocker in report["blockers"])
     assert len(report["preview_sha256"]) == 64
+
+    response = KnowledgeCleanupPreviewResponse.model_validate(report)
+    assert response.documents[0].document_id == 12
+    assert response.documents[0].stores.milvus_vectors == 4
 
 
 def test_cleanup_preview_flags_neo4j_relationships_without_document_ownership():

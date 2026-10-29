@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_db, create_pg_tables as db_create_pg_tables
 from core.security import ADMIN_ROLE_CODE, count_users_with_role, get_current_user, get_user_role_codes, is_admin_user, require_admin
 from models import KhDocument, UserModel, RoleModel, TeamMemberModel, TeamModel, UserRoleModel
-from schemas.user import AssignRolesDTO, CreateUserDTO, LoginDTO, RefreshTokenDTO, RegisterDTO, UpdateUserDTO, UserPageRespDTO, UserRespDTO, UserWithRolesRespDTO
+from schemas.user import AssignRolesDTO, CreateUserDTO, LoginDTO, LoginRespDTO, RefreshTokenDTO, RefreshTokenRespDTO, RegisterDTO, UpdateUserDTO, UserPageRespDTO, UserRespDTO, UserWithRolesRespDTO
 from utils.auth import create_access_token, create_refresh_token, decode_token
 from utils.hashing import get_password_hash, verify_password
 
@@ -209,7 +209,13 @@ async def create_user_api(
     return user
 
 
-@user_router.post('/login')
+@user_router.post(
+    '/login',
+    response_model=LoginRespDTO,
+    summary="用户登录并获取 token",
+    description="成功后返回 token 和 refresh_token。访问受保护接口时，在 Swagger 的 Authorize 中粘贴 token 字段的值，不要添加 Bearer 前缀。",
+    responses={401: {"description": "用户名或密码错误"}},
+)
 async def login_api(dto: LoginDTO, db: AsyncSession = Depends(get_db)):
     """用户登录，返回 JWT token"""
     user = await get_user_by_username(db, dto.username)
@@ -225,7 +231,13 @@ async def login_api(dto: LoginDTO, db: AsyncSession = Depends(get_db)):
     }
 
 
-@user_router.post('/refresh')
+@user_router.post(
+    '/refresh',
+    response_model=RefreshTokenRespDTO,
+    summary="刷新访问 token",
+    description="提交登录响应中的 refresh_token，获取新的 access token。",
+    responses={401: {"description": "refresh token 无效、过期或对应用户不存在"}},
+)
 async def refresh_token_api(dto: RefreshTokenDTO, db: AsyncSession = Depends(get_db)):
     """用 refresh token 换取新的 access token"""
     payload = decode_token(dto.refresh_token, "refresh")

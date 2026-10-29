@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 
 from api.document import pg_router, update_kh_doc_api
 from api.permission import permission_router
@@ -11,7 +12,7 @@ from api.review import review_router, review_tasks_api
 from api.role import del_role_api, role_router, unbind_role_api, update_role_api
 from api.team import team_router
 from api.user import assign_roles_api, del_user_api, update_user_api, user_roles_api, user_router
-from core.security import count_users_with_role, require_admin, require_reviewer_or_admin
+from core.security import count_users_with_role, get_current_user, require_admin, require_reviewer_or_admin
 from schemas.document import KhDocumentRespDTO, KhDocumentRespDTOUpdate
 from schemas.user import AssignRolesDTO, UpdateRoleDTO, UpdateUserDTO
 
@@ -54,12 +55,76 @@ class AdminRouteDependencyTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assert_route_depends_on(router, path, method, require_admin)
 
+    def test_openapi_exposes_bearer_authorization_for_authenticated_routes(self):
+        from main import app
+
+        schema = app.openapi()
+        bearer = schema["components"]["securitySchemes"]["BearerAuth"]
+        preview = schema["paths"]["/admin/knowledge-maintenance/cleanup-preview"]["get"]
+        login = schema["paths"]["/user/login"]["post"]
+        cleanup = schema["paths"]["/admin/knowledge-maintenance/cleanup"]["post"]
+        refresh = schema["paths"]["/user/refresh"]["post"]
+
+        self.assertEqual(bearer["type"], "http")
+        self.assertEqual(bearer["scheme"], "bearer")
+        self.assertEqual(bearer["bearerFormat"], "JWT")
+        self.assertIn("不要手动添加 Bearer 前缀", bearer["description"])
+        self.assertEqual(preview["security"], [{"BearerAuth": []}])
+        self.assertIsNone(login.get("security"))
+        self.assertIsNone(refresh.get("security"))
+        self.assertNotIn("parameters", preview)
+        self.assertEqual(
+            login["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/LoginRespDTO",
+        )
+        login_fields = schema["components"]["schemas"]["LoginRespDTO"]["properties"]
+        self.assertEqual(
+            set(login_fields),
+            {"token", "refresh_token", "token_type", "user"},
+        )
+        refresh_fields = schema["components"]["schemas"]["RefreshTokenRespDTO"]["properties"]
+        self.assertEqual(set(refresh_fields), {"token", "token_type"})
+        self.assertEqual(
+            refresh["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/RefreshTokenRespDTO",
+        )
+        self.assertEqual(
+            preview["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/KnowledgeCleanupPreviewResponse",
+        )
+        self.assertIn("401", preview["responses"])
+        self.assertIn("403", preview["responses"])
+        self.assertEqual(
+            cleanup["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/KnowledgeCleanupResult",
+        )
+
     def test_review_queue_requires_reviewer_or_admin(self):
         self.assert_route_depends_on(review_router, "/review/tasks", "GET", require_reviewer_or_admin)
         self.assert_route_depends_on(review_router, "/review/pending_count", "GET", require_reviewer_or_admin)
 
 
 class AdminAccessBehaviorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_current_user_decodes_bearer_credentials(self):
+        user = SimpleNamespace(id=7)
+        db = SimpleNamespace(get=AsyncMock(return_value=user))
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="access-token")
+
+        with patch("core.security.decode_token", return_value={"sub": "7"}) as decode:
+            self.assertIs(await get_current_user(credentials=credentials, db=db), user)
+
+        decode.assert_called_once_with("access-token", "access")
+        db.get.assert_awaited_once()
+
+    async def test_current_user_rejects_missing_bearer_credentials(self):
+        db = SimpleNamespace(get=AsyncMock())
+
+        with self.assertRaises(HTTPException) as denied:
+            await get_current_user(credentials=None, db=db)
+
+        self.assertEqual(denied.exception.status_code, 401)
+        db.get.assert_not_awaited()
+
     async def test_count_users_with_role(self):
         db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalar=lambda: 2)))
         self.assertEqual(await count_users_with_role(db, 'ROLE_ADMIN'), 2)

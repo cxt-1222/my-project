@@ -1,6 +1,5 @@
-from typing import Optional
-
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,11 +10,24 @@ from utils.auth import decode_token
 ADMIN_ROLE_CODE = 'ROLE_ADMIN'
 REVIEWER_ROLE_CODE = 'ROLE_SH'
 
+bearer_scheme = HTTPBearer(
+    auto_error=False,
+    scheme_name="BearerAuth",
+    bearerFormat="JWT",
+    description=(
+        "先调用 POST /user/login，复制响应中的 token 字段。这里只粘贴 token 本身，"
+        "不要手动添加 Bearer 前缀。"
+    ),
+)
 
-async def get_current_user(authorization: Optional[str] = Header(None), db: AsyncSession = Depends(get_db)) -> UserModel:
-    if not authorization or not authorization.startswith("Bearer "):
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> UserModel:
+    if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="缺少token")
-    payload = decode_token(authorization[7:], "access")
+    payload = decode_token(credentials.credentials, "access")
     if not payload:
         raise HTTPException(status_code=401, detail="token无效或已过期")
     user = await db.get(UserModel, int(payload["sub"]))

@@ -1,7 +1,7 @@
 import datetime
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RegisterDTO(BaseModel):
@@ -11,12 +11,12 @@ class RegisterDTO(BaseModel):
 
 
 class LoginDTO(BaseModel):
-    username: str
-    password: str
+    username: str = Field(description="登录用户名")
+    password: str = Field(description="登录密码")
 
 
 class RefreshTokenDTO(BaseModel):
-    refresh_token: str
+    refresh_token: str = Field(description="登录响应中的 refresh_token")
 
 
 class UpdateUserDTO(BaseModel):
@@ -43,6 +43,18 @@ class UserRespDTO(BaseModel):
     create_at: datetime.datetime
     update_at: datetime.datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+class LoginRespDTO(BaseModel):
+    token: str = Field(description="用于访问受保护接口的 JWT access token")
+    refresh_token: str = Field(description="用于刷新 access token 的 refresh token")
+    token_type: Literal["bearer"] = Field(description="Authorization 认证方案")
+    user: UserRespDTO = Field(description="当前登录用户")
+
+
+class RefreshTokenRespDTO(BaseModel):
+    token: str = Field(description="新的 JWT access token")
+    token_type: Literal["bearer"] = Field(description="Authorization 认证方案")
 
 
 class UserWithRolesRespDTO(UserRespDTO):
