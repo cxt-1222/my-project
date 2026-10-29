@@ -270,3 +270,22 @@ class KnowledgeSourceMappingModel(Base):
     content_sha256 = Column(CHAR(64), nullable=False)
     mapping_status = Column(String(16), nullable=False, server_default="pending")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class KnowledgeCleanupExecutionModel(Base):
+    __tablename__ = "kh_knowledge_cleanup_execution"
+    __table_args__ = (
+        CheckConstraint(
+            "execution_status IN ('running', 'completed', 'failed')",
+            name="ck_kh_knowledge_cleanup_execution_status",
+        ),
+        Index("ix_kh_knowledge_cleanup_execution_created_at", "created_at"),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    preview_sha256 = Column(CHAR(64), nullable=False)
+    requested_by = Column(Integer, nullable=False)
+    execution_status = Column(String(16), nullable=False, server_default="running")
+    result = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)

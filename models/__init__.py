@@ -20,4 +20,5 @@ from models.dataset_catalog import (
     RecipeCatalogModel,
     RecipeIngredientModel,
     KnowledgeSourceMappingModel,
+    KnowledgeCleanupExecutionModel,
 )

@@ -6,6 +6,7 @@ from models import (
     ExerciseCatalogModel,
     ExerciseMediaModel,
     FoodCatalogModel,
+    KnowledgeCleanupExecutionModel,
     KnowledgeSourceMappingModel,
     RecipeCatalogModel,
     RecipeIngredientModel,
@@ -22,6 +23,7 @@ def test_catalog_models_register_all_additive_tables():
         "kh_recipe_catalog",
         "kh_recipe_ingredient",
         "kh_knowledge_source_mapping",
+        "kh_knowledge_cleanup_execution",
     }
 
     assert expected <= set(DatasetImportModel.metadata.tables)
@@ -51,8 +53,10 @@ def test_catalog_foreign_keys_preserve_existing_document_ownership_and_cleanup_s
 def test_catalog_migration_only_creates_new_tables_and_indexes():
     migration = Path("migrations/20261027_01_create_fitness_nutrition_catalog.sql").read_text(encoding="utf-8")
     progress_migration = Path("migrations/20261027_02_create_dataset_import_progress.sql").read_text(encoding="utf-8")
+    cleanup_migration = Path("migrations/20261029_01_create_knowledge_cleanup_execution.sql").read_text(encoding="utf-8")
     upper = migration.upper()
     progress_upper = progress_migration.upper()
+    cleanup_upper = cleanup_migration.upper()
 
     assert "CREATE TABLE IF NOT EXISTS KH_DATASET_IMPORT" in upper
     assert "CREATE TABLE IF NOT EXISTS KH_KNOWLEDGE_SOURCE_MAPPING" in upper
@@ -62,6 +66,9 @@ def test_catalog_migration_only_creates_new_tables_and_indexes():
     assert "DROP TABLE" not in progress_upper
     assert "TRUNCATE" not in progress_upper
     assert "DROP COLLECTION" not in upper
+    assert "CREATE TABLE IF NOT EXISTS KH_KNOWLEDGE_CLEANUP_EXECUTION" in cleanup_upper
+    assert "DROP TABLE" not in cleanup_upper
+    assert "TRUNCATE" not in cleanup_upper
 
 
 def test_import_progress_tracks_each_storage_and_has_idempotent_key():

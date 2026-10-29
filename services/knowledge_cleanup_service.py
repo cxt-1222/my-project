@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from collections import Counter
+import hashlib
+import json
 from typing import Any
 
 from sqlalchemy import select
@@ -11,6 +13,7 @@ from clients import es_client, neo4j_client
 from clients.milvus_client import milvus_client
 from core.config import settings
 from models import GraphDocModel, KhDocument
+from models.dataset_catalog import DatasetImportModel, KnowledgeSourceMappingModel
 
 _MILVUS_BATCH_SIZE = 20
 _MILVUS_PAGE_SIZE = 1000
@@ -40,6 +43,7 @@ def _build_report(
     neo4j_total_relationships: int,
     ambiguous_mongo_records: int,
     orphan_graph_mappings: int,
+    unclassified_document_mappings: int = 0,
 ) -> dict[str, Any]:
     rows = []
     totals: Counter[str] = Counter()
@@ -57,14 +61,28 @@ def _build_report(
             "neo4j_attributed_relationships": neo4j_relationship_counts.get(doc_id, 0),
         }
         totals.update(stores)
+        classification = str(doc.get("cleanup_classification") or "unclassified")
+        cleanup_target = bool(doc.get("cleanup_target", False))
         rows.append({
             "document_id": doc_id,
+            "content_id": doc.get("content_id"),
             "title": doc.get("title"),
             "author_id": doc.get("author_id"),
             "team_id": doc.get("team_id"),
-            "cleanup_classification": "unclassified",
+            "cleanup_classification": classification,
+            "cleanup_target": cleanup_target,
             "stores": stores,
         })
+
+    unclassified_count = max(
+        unclassified_document_mappings,
+        sum(row["cleanup_classification"] in {"unclassified", "ambiguous_catalog_mapping"} for row in rows),
+    )
+
+    target_totals: Counter[str] = Counter()
+    for row in rows:
+        if row["cleanup_target"]:
+            target_totals.update(row["stores"])
 
     blockers = []
     if unattributed_neo4j_relationships:
@@ -79,21 +97,21 @@ def _build_report(
         blockers.append(
             f"PostgreSQL 中有 {orphan_graph_mappings} 条图谱映射找不到对应知识文档，需先核对。"
         )
-    blockers.append(
-        "来源记录到知识文档的稳定映射尚未实现，无法区分新健身/饮食目录与待清理旧文档。"
-    )
-    blockers.append(
-        "Neo4j 实体节点按名称跨文档共享合并，当前没有节点级文档归属，不能按文档安全清理。"
-    )
+    if unclassified_count:
+        blockers.append(
+            f"有 {unclassified_count} 个文档的来源映射不明确，无法安全判定清理范围。"
+        )
 
-    return {
+    report = {
         "mode": "read_only_preview",
         "destructive": False,
-        "cleanup_execution_available": False,
-        "cleanup_target_classification_available": False,
+        "cleanup_execution_available": not blockers,
+        "cleanup_target_classification_available": unclassified_count == 0,
         "document_count": len(rows),
+        "cleanup_target_count": sum(row["cleanup_target"] for row in rows),
         "documents": rows,
         "totals": dict(totals),
+        "cleanup_target_totals": dict(target_totals),
         "unattributed_neo4j_relationships": unattributed_neo4j_relationships,
         "neo4j_global_counts": {
             "nodes": neo4j_total_nodes,
@@ -101,16 +119,24 @@ def _build_report(
         },
         "ambiguous_mongodb_records": ambiguous_mongo_records,
         "orphan_postgres_graph_mappings": orphan_graph_mappings,
+        "unclassified_document_mappings": unclassified_count,
         "blockers": blockers,
-        "notice": "本接口只是全量盘点，不是可执行的删除清单；只读取元数据和存储计数，不读取知识正文，也不执行删除。预览不是锁定快照。",
+        "notice": (
+            "只读取文档元数据和各存储计数，不读取知识正文。清理按文档 ID 执行；"
+            "Neo4j 的共享实体节点会保留，只清理可归属文档的关系。预览不是锁定快照。"
+        ),
     }
+    digest_body = json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    report["preview_sha256"] = hashlib.sha256(digest_body.encode("utf-8")).hexdigest()
+
+    return report
 
 
 async def _count_mongo_contents(
     documents: list[dict[str, Any]],
+    *,
+    collection: Any | None = None,
 ) -> tuple[dict[int, int], int]:
-    from pymongo import AsyncMongoClient
-
     doc_ids = {int(doc["id"]) for doc in documents}
     content_id_owners: dict[int, set[int]] = {}
     for doc in documents:
@@ -118,9 +144,13 @@ async def _count_mongo_contents(
         if content_id is not None:
             content_id_owners.setdefault(content_id, set()).add(int(doc["id"]))
 
-    client = AsyncMongoClient(settings.MONGO_URI)
-    try:
+    client = None
+    if collection is None:
+        from pymongo import AsyncMongoClient
+
+        client = AsyncMongoClient(settings.MONGO_URI)
         collection = client[settings.DB_NAME]["document_content"]
+    try:
         query = {"$or": [
             {"_id": {"$in": list(content_id_owners)}},
             {"document_id": {"$in": list(doc_ids)}},
@@ -139,13 +169,15 @@ async def _count_mongo_contents(
                 counts[next(iter(owners))] += 1
         return dict(counts), ambiguous
     finally:
-        await client.close()
+        if client is not None:
+            await client.close()
 
 
-async def _count_elasticsearch_documents(doc_ids: list[int]) -> dict[int, int]:
+async def _count_elasticsearch_documents(doc_ids: list[int], es: Any | None = None) -> dict[int, int]:
     if not doc_ids:
         return {}
-    es = await es_client.get_es()
+    if es is None:
+        es = await es_client.get_es()
     response = await es.mget(
         index=settings.INDEX_NAME,
         ids=[str(doc_id) for doc_id in doc_ids],
@@ -196,8 +228,11 @@ async def _count_milvus_vectors(doc_ids: list[int]) -> dict[int, int]:
 
 async def _count_neo4j_relationships(
     doc_ids: set[int],
+    driver: Any | None = None,
+    *,
+    include_foreign_document_ids: bool = True,
 ) -> tuple[dict[int, int], int, int, int]:
-    driver = neo4j_client.driver
+    driver = driver or neo4j_client.driver
     if driver is None:
         raise RuntimeError("Neo4j driver 未初始化。")
 
@@ -226,7 +261,7 @@ async def _count_neo4j_relationships(
         record_count = int(row.get("record_count") or 0)
         if doc_id in doc_ids:
             counts[doc_id] += record_count
-        else:
+        elif include_foreign_document_ids:
             unresolved += record_count
 
     return (
@@ -259,6 +294,43 @@ async def create_knowledge_cleanup_preview(db: AsyncSession) -> dict[str, Any]:
     ]
     doc_ids = [doc["id"] for doc in documents]
     doc_id_set = set(doc_ids)
+
+    source_mappings: dict[int, list[dict[str, Any]]] = {}
+    if doc_ids:
+        mapping_result = await db.execute(
+            select(
+                KnowledgeSourceMappingModel.document_id,
+                KnowledgeSourceMappingModel.mapping_status,
+                DatasetImportModel.import_status,
+                DatasetImportModel.metadata_license_status,
+            )
+            .join(DatasetImportModel, DatasetImportModel.id == KnowledgeSourceMappingModel.import_id)
+            .where(KnowledgeSourceMappingModel.document_id.in_(doc_ids))
+        )
+        for row in mapping_result.all():
+            source_mappings.setdefault(int(row.document_id), []).append({
+                "mapping_status": row.mapping_status,
+                "import_status": row.import_status,
+                "metadata_license_status": row.metadata_license_status,
+            })
+
+    unclassified_mappings = 0
+    for document in documents:
+        mappings = source_mappings.get(document["id"], [])
+        if len(mappings) > 1:
+            document["cleanup_classification"] = "ambiguous_catalog_mapping"
+            document["cleanup_target"] = False
+            unclassified_mappings += 1
+        elif mappings and (
+            mappings[0]["mapping_status"] == "active"
+            and mappings[0]["import_status"] == "imported"
+            and mappings[0]["metadata_license_status"] == "approved"
+        ):
+            document["cleanup_classification"] = "approved_catalog_document"
+            document["cleanup_target"] = False
+        else:
+            document["cleanup_classification"] = "legacy_or_inactive_document"
+            document["cleanup_target"] = True
 
     graph_result = await db.execute(
         select(
@@ -303,4 +375,5 @@ async def create_knowledge_cleanup_preview(db: AsyncSession) -> dict[str, Any]:
         neo4j_total_relationships=neo4j_relationship_total,
         ambiguous_mongo_records=ambiguous_mongo,
         orphan_graph_mappings=orphan_graph_mappings,
+        unclassified_document_mappings=unclassified_mappings,
     )

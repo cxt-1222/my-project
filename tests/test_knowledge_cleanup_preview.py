@@ -42,7 +42,8 @@ def test_cleanup_preview_contains_counts_without_document_bodies():
     assert report["neo4j_global_counts"] == {"nodes": 8, "relationships": 5}
     assert "content" not in report["documents"][0]
     assert report["documents"][0]["cleanup_classification"] == "unclassified"
-    assert any("稳定映射尚未实现" in blocker for blocker in report["blockers"])
+    assert any("来源映射不明确" in blocker for blocker in report["blockers"])
+    assert len(report["preview_sha256"]) == 64
 
 
 def test_cleanup_preview_flags_neo4j_relationships_without_document_ownership():
@@ -145,6 +146,13 @@ def test_cleanup_preview_route_requires_system_admin_role():
     assert "GET" in route.methods
     assert "DELETE" not in route.methods
 
+    cleanup_route = next(
+        route for route in knowledge_maintenance_router.routes
+        if route.path.endswith("/cleanup")
+    )
+    assert any(dependency.call is require_admin for dependency in cleanup_route.dependant.dependencies)
+    assert "POST" in cleanup_route.methods
+
 
 def test_cleanup_preview_reads_all_stores_without_fetching_knowledge_bodies():
     async def run_preview():
@@ -157,6 +165,12 @@ def test_cleanup_preview_reads_all_stores_without_fetching_knowledge_bodies():
             entities=[{"name": "侧平举"}],
             relationships=[{"sourceName": "侧平举", "targetName": "三角肌"}],
         )
+        source_mapping = SimpleNamespace(
+            document_id=12,
+            mapping_status="active",
+            import_status="imported",
+            metadata_license_status="approved",
+        )
 
         class Db:
             def __init__(self):
@@ -164,7 +178,11 @@ def test_cleanup_preview_reads_all_stores_without_fetching_knowledge_bodies():
 
             async def execute(self, _statement):
                 self.calls += 1
-                rows = [document] if self.calls == 1 else [graph_mapping]
+                rows = {
+                    1: [document],
+                    2: [source_mapping],
+                    3: [graph_mapping],
+                }[self.calls]
                 return SimpleNamespace(all=lambda: rows)
 
         class Cursor:
@@ -241,6 +259,10 @@ def test_cleanup_preview_reads_all_stores_without_fetching_knowledge_bodies():
             report = await knowledge_cleanup_service.create_knowledge_cleanup_preview(Db())
 
         assert report["document_count"] == 1
+        assert report["cleanup_target_count"] == 0
+        assert report["cleanup_execution_available"] is True
+        assert report["documents"][0]["cleanup_classification"] == "approved_catalog_document"
+        assert report["documents"][0]["cleanup_target"] is False
         assert report["neo4j_global_counts"] == {"nodes": 0, "relationships": 2}
         assert report["documents"][0]["stores"] == {
             "postgres_documents": 1,
