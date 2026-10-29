@@ -336,6 +336,11 @@ class SourceLimitedAITests(unittest.IsolatedAsyncioTestCase):
                 {"_id": "2", "content": "unrelated hit"},
             ]}),
             patch("api.ai.rerank_call", rerank),
+            patch(
+                "api.ai.load_named_catalog_evidence",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
             patch("api.ai.web_search", new_callable=AsyncMock) as web,
         ):
             context, sources = await _prepare_materials(
@@ -367,6 +372,11 @@ class SourceLimitedAITests(unittest.IsolatedAsyncioTestCase):
                 {"_id": "1", "content": "must not leak"},
             ]}),
             patch("api.ai.rerank_call", new_callable=AsyncMock, return_value=[]),
+            patch(
+                "api.ai.load_named_catalog_evidence",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
             patch("api.ai.web_search", new_callable=AsyncMock) as web,
         ):
             context, sources = await _prepare_materials(

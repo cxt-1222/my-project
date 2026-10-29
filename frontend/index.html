@@ -150,10 +150,23 @@
         </section>
 
         <section id="page-nutrition" class="page" aria-labelledby="nutritionHeading">
-          <div class="page-header-row"><div><p class="eyebrow">FOOD / FUEL / DAILY</p><h1 id="nutritionHeading">营养记录</h1><p class="page-subtitle">手动记下每天吃了什么，看看热量和营养素合计。</p></div></div>
-          <p class="nutrition-manual-note" role="note">营养数值由你手动填写和维护；系统不会自动识别或估算。请按食物包装或你采用的记录来源填写。</p>
+          <div class="page-header-row"><div><p class="eyebrow">FOOD / FUEL / DAILY</p><h1 id="nutritionHeading">营养记录</h1><p class="page-subtitle">从已批准目录预填，或手动记录每天吃了什么；所有内容都由你检查后保存。</p></div></div>
+          <p class="nutrition-manual-note" role="note">目录营养值只在来源和计量基准已批准时显示；缺失项不会被估算。选择目录只会生成可编辑草稿，明确提交前不会写入记录。</p>
           <div class="nutrition-toolbar"><label for="nutritionDate">查看日期<input id="nutritionDate" type="date" aria-label="选择饮食记录日期"></label><button id="nutritionToday" class="button button-light" type="button">回到今天</button></div>
           <div id="nutritionSummary" class="nutrition-summary-grid" aria-live="polite"><div class="empty-loading">正在加载每日营养汇总…</div></div>
+          <section id="nutritionCatalogPanel" class="nutrition-catalog-panel" aria-labelledby="nutritionCatalogHeading">
+            <div class="nutrition-catalog-heading">
+              <div><p class="eyebrow">APPROVED CATALOG</p><h2 id="nutritionCatalogHeading">从已批准目录选择</h2><p>搜索食材或菜谱，查看来源和计量基准，再预填到下方可编辑表单。</p></div>
+              <span class="local-badge">选择不等于保存</span>
+            </div>
+            <form id="nutritionCatalogForm" class="nutrition-catalog-search">
+              <label for="nutritionCatalogKind">目录类型<select id="nutritionCatalogKind"><option value="food">食材</option><option value="recipe">菜谱</option></select></label>
+              <label for="nutritionCatalogQuery">名称<input id="nutritionCatalogQuery" maxlength="120" placeholder="例如：鸡胸肉、燕麦碗" required></label>
+              <button id="nutritionCatalogSearch" class="button button-primary" type="submit"><svg><use href="#i-search"/></svg>搜索目录</button>
+            </form>
+            <p id="nutritionCatalogStatus" class="nutrition-catalog-status" role="status">仅显示已获批准、已启用且未隔离的数据。</p>
+            <div id="nutritionCatalogResults" class="nutrition-catalog-results" aria-live="polite"></div>
+          </section>
           <section id="nutritionPhotoPanel" class="nutrition-photo-panel" aria-labelledby="nutritionPhotoHeading">
             <div class="nutrition-photo-heading"><div><p class="eyebrow">PHOTO ESTIMATE</p><h2 id="nutritionPhotoHeading">拍照识别餐食</h2><p>图片会发送给已配置的识别服务并存入私有对象存储；识别值是估算结果，检查并确认后才会写入营养记录。</p></div><span class="local-badge">未确认不会保存</span></div>
             <form id="nutritionPhotoForm" class="nutrition-photo-upload">
@@ -166,7 +179,8 @@
           </section>
           <div class="nutrition-layout">
             <form id="nutritionForm" class="nutrition-form">
-              <div class="nutrition-form-heading"><div><p class="eyebrow">MANUAL ENTRY</p><h2 id="nutritionFormHeading">记录一项食物</h2></div><span class="local-badge">仅保存手动输入值</span></div>
+              <div class="nutrition-form-heading"><div><p class="eyebrow">EDITABLE DRAFT</p><h2 id="nutritionFormHeading">记录一项食物</h2></div><span class="local-badge">检查后明确保存</span></div>
+              <div id="nutritionCatalogSelection"></div>
               <label>食物名称<input name="food_name" id="nutritionFoodName" maxlength="120" required placeholder="例如：燕麦粥"></label>
               <div class="nutrition-form-grid">
                 <label>餐次<select name="meal_type" id="nutritionMealType" required><option value="breakfast">早餐</option><option value="lunch">午餐</option><option value="dinner">晚餐</option><option value="snack">加餐</option></select></label>

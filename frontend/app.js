@@ -35,6 +35,10 @@ const state = {
   nutritionPhotoPreviewOwner: null,
   nutritionPhotoImageGeneration: 0,
   nutritionPhotoObjectUrl: null,
+  nutritionCatalogKind: 'food',
+  nutritionCatalogResults: [],
+  nutritionCatalogSelection: null,
+  nutritionCatalogGeneration: 0,
   admin: { allowed: false, isAdmin: false, isReviewer: false, roleCodes: [], tab: 'overview', usersPage: 1, reviewsPage: 1, reviewStatus: 'pending', userKeyword: '', roles: [], permissions: [], teams: [] },
 };
 let adminRolePopover = null;
@@ -156,11 +160,20 @@ function resetChatRuntime() {
   state.nutritionPhotoPreviewId = null;
   state.nutritionPhotoPreviewStatus = null;
   state.nutritionPhotoPreviewOwner = null;
+  state.nutritionCatalogKind = 'food';
+  state.nutritionCatalogResults = [];
+  state.nutritionCatalogSelection = null;
+  state.nutritionCatalogGeneration += 1;
   releaseNutritionPhotoImage();
   if ($('#nutritionPhotoResult')) $('#nutritionPhotoResult').innerHTML = '<p class="muted">选择图片后，识别结果会显示在这里供你核对。</p>';
   if ($('#nutritionPhotoStatus')) $('#nutritionPhotoStatus').textContent = '';
   if ($('#nutritionPhotoForm')) $('#nutritionPhotoForm').reset();
   if ($('#nutritionPhotoScan')) $('#nutritionPhotoScan').disabled = true;
+  if ($('#nutritionCatalogForm')) $('#nutritionCatalogForm').reset();
+  if ($('#nutritionCatalogKind')) $('#nutritionCatalogKind').value = 'food';
+  if ($('#nutritionCatalogSearch')) $('#nutritionCatalogSearch').disabled = false;
+  if ($('#nutritionCatalogResults')) $('#nutritionCatalogResults').innerHTML = '';
+  if ($('#nutritionCatalogStatus')) $('#nutritionCatalogStatus').textContent = '仅显示已获批准、已启用且未隔离的数据。';
   if ($('#nutritionForm')) resetNutritionForm();
   if ($('#nutritionSummary')) $('#nutritionSummary').innerHTML = '<div class="empty-loading">登录后加载每日营养汇总…</div>';
   if ($('#nutritionRecords')) $('#nutritionRecords').innerHTML = '<div class="empty-state compact"><div><h3>请登录后查看饮食记录</h3></div></div>';
@@ -403,10 +416,15 @@ function renderSources(sources = []) {
     const reference = Number.isInteger(index) && index > 0
       ? `<span class="source-index">[${index}]</span> `
       : '';
+    const typeLabel = source.sourceType === 'catalog'
+      ? '结构化目录'
+      : source.sourceType === 'web'
+        ? '网页'
+        : '知识库';
     const score = source.score != null
       ? ` <small>相关度 ${escapeHtml(source.score)}</small>`
       : '';
-    return `<li>${reference}${escapeHtml(source.documentTitle || '知识库资料')}${score}</li>`;
+    return `<li>${reference}<small>${typeLabel}</small> ${escapeHtml(source.documentTitle || '知识库资料')}${score}</li>`;
   }).join('');
 
   tray.classList.remove('hidden');
@@ -642,16 +660,88 @@ async function openSavedTrainingPlan(id) {
     $('#trainingGenerateStatus').textContent = `已读取计划 ${plan.id}。`;
   } catch (error) { showError(error); }
 }
+function clearNutritionCatalogDraft() {
+  state.nutritionCatalogSelection = null;
+  const selection = $('#nutritionCatalogSelection');
+  if (selection) selection.innerHTML = '';
+}
 function resetNutritionForm() {
   const form = $('#nutritionForm');
   if (!form) return;
   form.reset();
   $('#nutritionUnit').value = 'g';
   state.nutritionEditingId = null;
+  clearNutritionCatalogDraft();
   $('#nutritionFormHeading').textContent = '记录一项食物';
   $('#saveNutritionRecord').innerHTML = '<svg><use href="#i-check"/></svg>保存记录';
   $('#cancelNutritionEdit').classList.add('hidden');
   $('#nutritionFormError').textContent = '';
+}
+async function searchNutritionCatalog(event) {
+  event.preventDefault();
+  const kind = $('#nutritionCatalogKind').value === 'recipe' ? 'recipe' : 'food';
+  const query = $('#nutritionCatalogQuery').value.trim();
+  const status = $('#nutritionCatalogStatus');
+  const results = $('#nutritionCatalogResults');
+  const button = $('#nutritionCatalogSearch');
+  if (!query) {
+    status.textContent = '请输入要搜索的食材或菜谱名称。';
+    return;
+  }
+  const generation = ++state.nutritionCatalogGeneration;
+  state.nutritionCatalogKind = kind;
+  state.nutritionCatalogResults = [];
+  button.disabled = true;
+  status.textContent = '正在查询已批准目录，尚未修改饮食记录…';
+  results.innerHTML = '<div class="empty-loading">正在查询目录…</div>';
+  try {
+    const path = kind === 'food' ? '/catalog/foods' : '/catalog/recipes';
+    const params = new URLSearchParams({query, limit:'12'});
+    const items = await request(`${path}?${params.toString()}`);
+    if (generation !== state.nutritionCatalogGeneration || kind !== state.nutritionCatalogKind) return;
+    state.nutritionCatalogResults = Array.isArray(items) ? items : [];
+    results.innerHTML = NutritionTrackingUI.renderCatalogResults(
+      state.nutritionCatalogResults,
+      kind,
+      escapeHtml,
+    );
+    status.textContent = state.nutritionCatalogResults.length
+      ? `找到 ${state.nutritionCatalogResults.length} 条已批准记录；选择后仍需检查并明确保存。`
+      : '没有匹配的已批准记录；未获准或已隔离的数据不会显示。';
+  } catch (error) {
+    if (generation !== state.nutritionCatalogGeneration) return;
+    results.innerHTML = '<div class="empty-state compact"><div><h3>目录查询失败</h3><p>请稍后重试，现有饮食记录未受影响。</p></div></div>';
+    status.textContent = `目录查询失败：${error.message}`;
+  } finally {
+    if (generation === state.nutritionCatalogGeneration) button.disabled = false;
+  }
+}
+function selectNutritionCatalogItem(recordId, kind) {
+  const id = Number(recordId);
+  if (!Number.isSafeInteger(id) || id < 1 || kind !== state.nutritionCatalogKind) return;
+  const item = state.nutritionCatalogResults.find(candidate => Number(candidate.id) === id);
+  if (!item) return;
+  try {
+    const draft = NutritionTrackingUI.buildCatalogDraft(item, kind);
+    state.nutritionEditingId = null;
+    state.nutritionCatalogSelection = draft;
+    $('#nutritionFoodName').value = draft.fields.food_name;
+    $('#nutritionMealType').value = draft.fields.meal_type;
+    $('#nutritionAmount').value = draft.fields.amount;
+    $('#nutritionUnit').value = draft.fields.unit;
+    $('#nutritionCalories').value = draft.fields.calories_kcal;
+    $('#nutritionProtein').value = draft.fields.protein_g;
+    $('#nutritionCarbohydrate').value = draft.fields.carbohydrate_g;
+    $('#nutritionFat').value = draft.fields.fat_g;
+    $('#nutritionCatalogSelection').innerHTML = NutritionTrackingUI.renderCatalogSelection(draft, escapeHtml);
+    $('#nutritionFormHeading').textContent = '检查目录预填草稿';
+    $('#saveNutritionRecord').innerHTML = '<svg><use href="#i-check"/></svg>保存记录';
+    $('#cancelNutritionEdit').classList.remove('hidden');
+    $('#nutritionFormError').textContent = '';
+    $('#nutritionForm').scrollIntoView({behavior:'smooth', block:'start'});
+  } catch (error) {
+    $('#nutritionFormError').textContent = error.message;
+  }
 }
 async function loadNutritionDay() {
   const dateInput = $('#nutritionDate');
@@ -843,6 +933,7 @@ async function cancelNutritionPhotoPreview(button) {
 }
 function editNutritionRecord(record) {
   if (!record) return;
+  clearNutritionCatalogDraft();
   state.nutritionEditingId = Number(record.id);
   $('#nutritionFoodName').value = record.food_name || '';
   $('#nutritionMealType').value = record.meal_type || 'breakfast';
@@ -904,6 +995,14 @@ async function deleteNutritionRecord(recordId, button) {
   } catch (error) { if (button) { button.disabled = false; button.textContent = '删除'; } showError(error); }
 }
 function bindNutritionEvents() {
+  $('#nutritionCatalogForm').addEventListener('submit', searchNutritionCatalog);
+  $('#nutritionCatalogResults').addEventListener('click', event => {
+    const button = event.target.closest('[data-select-catalog]');
+    if (button) selectNutritionCatalogItem(button.dataset.selectCatalog, button.dataset.catalogKind);
+  });
+  $('#nutritionCatalogSelection').addEventListener('click', event => {
+    if (event.target.closest('[data-clear-catalog-draft]')) resetNutritionForm();
+  });
   $('#nutritionForm').addEventListener('submit', saveNutritionRecord);
   $('#nutritionDate').addEventListener('change', () => { resetNutritionForm(); loadNutritionDay(); });
   $('#nutritionToday').addEventListener('click', () => {

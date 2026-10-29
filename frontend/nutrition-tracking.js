@@ -104,6 +104,116 @@
     }).join('');
   }
 
+  function catalogBasis(item, kind) {
+    if (kind === 'recipe') {
+      return {
+        values: item?.nutrition?.per_serving,
+        label: '每份',
+        amount: 1,
+        unit: '份',
+        missingIngredients: item?.nutrition?.missing_ingredients || [],
+      };
+    }
+    return {
+      values: item?.nutrition?.per_100g,
+      label: '每 100 克',
+      amount: 100,
+      unit: 'g',
+      missingIngredients: [],
+    };
+  }
+
+  function sourceLabel(item) {
+    const source = item?.source || {};
+    const name = item?.source_name || source.dataset || '已批准目录';
+    const revision = String(source.revision || '').slice(0, 12);
+    const recordId = source.source_record_id || '';
+    return [name, revision, recordId].filter(Boolean).join(' · ');
+  }
+
+  function buildCatalogDraft(item, kind) {
+    if (!item || !['food', 'recipe'].includes(kind)) {
+      throw new Error('目录记录无效，请重新选择。');
+    }
+    const basis = catalogBasis(item, kind);
+    if (!basis.values) {
+      throw new Error(`该${kind === 'food' ? '食材' : '菜谱'}没有可预填的${basis.label}营养数据。`);
+    }
+    return {
+      kind,
+      recordId: item.id,
+      title: kind === 'food' ? item.name : item.title,
+      sourceLabel: sourceLabel(item),
+      basisLabel: basis.label,
+      missingIngredients: basis.missingIngredients,
+      complete: Boolean(basis.values.complete),
+      fields: {
+        meal_type: 'breakfast',
+        food_name: kind === 'food' ? item.name : item.title,
+        amount: basis.amount,
+        unit: basis.unit,
+        calories_kcal: basis.values.calories_kcal ?? '',
+        protein_g: basis.values.protein_g ?? '',
+        carbohydrate_g: basis.values.carbohydrate_g ?? '',
+        fat_g: basis.values.fat_g ?? '',
+      },
+    };
+  }
+
+  function renderCatalogSelection(selection, escapeHtml = value => String(value)) {
+    if (!selection) return '';
+    const missing = [
+      ...(selection.missingIngredients || []).map(item => `${item.name}：${item.reason}`),
+      ...((selection.complete ? [] : ['营养字段不完整'])),
+    ];
+    return `<div class="nutrition-catalog-selection" role="status">
+      <div>
+        <strong>本次已选择 1 项：${escapeHtml(selection.title)}</strong>
+        <p>来源：${escapeHtml(selection.sourceLabel)}</p>
+        <p>计量基准：${escapeHtml(selection.basisLabel)} · 草稿尚未保存，请检查后明确提交。</p>
+        ${missing.length ? `<p class="nutrition-catalog-warning">${escapeHtml(missing.join('；'))}</p>` : ''}
+      </div>
+      <button type="button" class="text-action" data-clear-catalog-draft>取消预填</button>
+    </div>`;
+  }
+
+  function renderCatalogResults(items = [], kind = 'food', escapeHtml = value => String(value)) {
+    if (!Array.isArray(items) || !items.length) {
+      return '<div class="empty-state compact"><div><h3>没有匹配的已批准目录记录</h3><p>未获准、已停用或营养基准不完整的记录不会显示。</p></div></div>';
+    }
+    return items.map(item => {
+      const id = Number(item?.id);
+      let draft;
+      try {
+        draft = buildCatalogDraft(item, kind);
+      } catch {
+        return '';
+      }
+      const value = (field, unit) => draft.fields[field] === ''
+        ? '缺失'
+        : `${escapeHtml(formatAmount(draft.fields[field]))} ${unit}`;
+      const missing = draft.complete
+        ? '营养字段完整'
+        : '营养数据不完整或关联食材缺失';
+      return `<article class="nutrition-catalog-result" data-catalog-id="${Number.isSafeInteger(id) && id > 0 ? id : 0}">
+        <div class="nutrition-catalog-result-head">
+          <span>${kind === 'food' ? '食材' : '菜谱'}</span>
+          <strong>${escapeHtml(draft.title)}</strong>
+        </div>
+        <p>${escapeHtml(draft.sourceLabel)}</p>
+        <dl>
+          <div><dt>计量基准</dt><dd>${escapeHtml(draft.basisLabel)}</dd></div>
+          <div><dt>热量</dt><dd>${value('calories_kcal', 'kcal')}</dd></div>
+          <div><dt>蛋白质</dt><dd>${value('protein_g', 'g')}</dd></div>
+          <div><dt>碳水</dt><dd>${value('carbohydrate_g', 'g')}</dd></div>
+          <div><dt>脂肪</dt><dd>${value('fat_g', 'g')}</dd></div>
+        </dl>
+        <p class="${draft.complete ? 'nutrition-catalog-complete' : 'nutrition-catalog-warning'}">${missing}</p>
+        <button class="button button-light" type="button" data-select-catalog="${Number.isSafeInteger(id) && id > 0 ? id : 0}" data-catalog-kind="${kind}" ${id > 0 ? '' : 'disabled'}>预填到饮食草稿</button>
+      </article>`;
+    }).filter(Boolean).join('');
+  }
+
   function buildPhotoConfirmPayload(items, date) {
     if (!Array.isArray(items) || items.length < 1 || items.length > 20) {
       throw new Error('请保留 1 至 20 项食物后再确认。');
@@ -147,7 +257,20 @@
     return `ironflow_nutrition_photo_preview_${encodeURIComponent(String(userId || ''))}`;
   }
 
-  const api = {todayLocalDate, isCalendarDate, buildNutritionPayload, buildPhotoConfirmPayload, renderDailySummary, renderNutritionRecords, renderPhotoPreview, photoPreviewStorageKey, formatAmount};
+  const api = {
+    todayLocalDate,
+    isCalendarDate,
+    buildNutritionPayload,
+    buildCatalogDraft,
+    buildPhotoConfirmPayload,
+    renderDailySummary,
+    renderNutritionRecords,
+    renderCatalogSelection,
+    renderCatalogResults,
+    renderPhotoPreview,
+    photoPreviewStorageKey,
+    formatAmount,
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.NutritionTrackingUI = api;
 })(globalThis);

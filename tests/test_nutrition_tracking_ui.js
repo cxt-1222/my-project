@@ -110,3 +110,81 @@ test('daily cards render server totals and record list escapes user-controlled t
 test('empty nutrition records show an explicit no-data state', () => {
   assert.match(nutrition.renderNutritionRecords([]), /还没有饮食记录/);
 });
+
+test('approved food catalog prefill uses per-100g values without saving', () => {
+  const draft = nutrition.buildCatalogDraft({
+    id: 5,
+    name: '燕麦',
+    source: {
+      dataset: 'approved-food',
+      revision: 'abcdef1234567890',
+      source_record_id: 'oats-1',
+    },
+    nutrition: {
+      per_100g: {
+        calories_kcal: 389,
+        protein_g: 16.9,
+        carbohydrate_g: 66.3,
+        fat_g: 6.9,
+        complete: true,
+      },
+    },
+  }, 'food');
+  assert.equal(draft.fields.food_name, '燕麦');
+  assert.equal(draft.fields.amount, 100);
+  assert.equal(draft.fields.unit, 'g');
+  assert.equal(draft.fields.protein_g, 16.9);
+  assert.equal(draft.basisLabel, '每 100 克');
+  assert.match(draft.sourceLabel, /approved-food/);
+  assert.match(draft.sourceLabel, /oats-1/);
+});
+
+test('recipe catalog prefill uses per-serving values and keeps missing nutrition editable', () => {
+  const draft = nutrition.buildCatalogDraft({
+    id: 7,
+    title: '燕麦碗',
+    source_name: 'Example recipes',
+    source: {dataset: 'approved-recipes', revision: '1234567890abcdef', source_record_id: 'bowl-1'},
+    nutrition: {
+      per_serving: {
+        calories_kcal: null,
+        protein_g: 8.5,
+        carbohydrate_g: null,
+        fat_g: null,
+        complete: false,
+      },
+      missing_ingredients: [{name: '牛奶', reason: '关联食材未获准或已停用'}],
+    },
+  }, 'recipe');
+  assert.equal(draft.fields.amount, 1);
+  assert.equal(draft.fields.unit, '份');
+  assert.equal(draft.fields.calories_kcal, '');
+  assert.equal(draft.fields.protein_g, 8.5);
+  assert.equal(draft.complete, false);
+  assert.match(draft.missingIngredients[0].reason, /未获准/);
+});
+
+test('catalog result and selection markup show source, basis and one explicit selection', () => {
+  const escape = value => String(value).replace(/[&<>"']/g, char => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;',
+  }[char]));
+  const item = {
+    id: 5,
+    name: '<img src=x>',
+    source: {dataset:'safe', revision:'abc', source_record_id:'food-1'},
+    nutrition: {per_100g:{
+      calories_kcal: 100, protein_g: 10, carbohydrate_g: 0, fat_g: 2, complete:true,
+    }},
+  };
+  const results = nutrition.renderCatalogResults([item], 'food', escape);
+  assert.match(results, /预填到饮食草稿/);
+  assert.match(results, /每 100 克/);
+  assert.match(results, /safe/);
+  assert.doesNotMatch(results, /<img src=x>/);
+
+  const draft = nutrition.buildCatalogDraft(item, 'food');
+  const selection = nutrition.renderCatalogSelection(draft, escape);
+  assert.match(selection, /本次已选择 1 项/);
+  assert.match(selection, /草稿尚未保存/);
+  assert.match(selection, /取消预填/);
+});
