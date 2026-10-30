@@ -1,11 +1,13 @@
 from datetime import datetime
 from typing import Optional, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # 请求模型
 class KnowledgeDoc(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     title: Optional[str] = None
     content_id: Optional[int] = None
     summary: Optional[str] = None
@@ -30,8 +32,4 @@ class KnowledgeDoc(BaseModel):
     create_by: Optional[str] = None
     update_by: Optional[str] = None
     deleted: Optional[bool] = None
-    content:Optional[str] = None
-
-    class Config:
-        # 允许从dict/ES _source 直接解析
-        from_attributes = True
+    content: Optional[str] = None
