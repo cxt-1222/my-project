@@ -17,6 +17,3 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return bcrypt.checkpw(_to_bytes(plain_password), hashed_password.encode("utf-8"))
     except ValueError:
         return False
-
-res = get_password_hash('123456')
-print(res)
