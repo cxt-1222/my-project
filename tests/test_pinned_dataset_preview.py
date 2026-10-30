@@ -1,10 +1,13 @@
 import hashlib
 import json
 from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
+import utils.pinned_dataset_preview as preview_module
 from utils.pinned_dataset_preview import (
     fetch_pinned_json,
     parse_source_lock,
@@ -89,6 +92,67 @@ def test_fetch_verifies_exact_sha_and_never_follows_redirects():
     assert metadata["bytes"] == len(payload)
     assert metadata["sha256"] == hashlib.sha256(payload).hexdigest()
     assert requested == [files[0].url]
+
+
+def test_fetch_uses_curl_after_httpx_transport_failure_and_still_verifies_hash(monkeypatch):
+    payload = b'[{"name":"Squat"}]'
+    files, _ = parse_source_lock(_source_lock([_file_config(payload)]))
+    fallback_calls = []
+
+    def curl_fallback(url, *, limit, timeout):
+        fallback_calls.append((url, limit, timeout))
+        return payload, 200
+
+    monkeypatch.setattr(preview_module, "_fetch_with_curl", curl_fallback)
+
+    def handler(request):
+        raise httpx.ConnectError("TLS EOF", request=request)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        parsed, metadata = fetch_pinned_json(files[0], client)
+
+    assert parsed == [{"name": "Squat"}]
+    assert metadata["hash_verified"] is True
+    assert fallback_calls == [(files[0].mirror_url, files[0].max_bytes, 5.0)]
+
+
+def test_curl_fallback_requires_https_does_not_follow_redirects_and_enforces_limit(monkeypatch):
+    payload = b'{"ok":true}'
+    calls = []
+
+    monkeypatch.setattr(preview_module.shutil, "which", lambda name: "curl.exe")
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        output_path = Path(command[command.index("--output") + 1])
+        output_path.write_bytes(payload)
+        return SimpleNamespace(returncode=0, stdout=b"200", stderr=b"")
+
+    monkeypatch.setattr(preview_module.subprocess, "run", run)
+    result, status = preview_module._fetch_with_curl(
+        "https://example.invalid/records.json", limit=len(payload), timeout=3
+    )
+
+    assert (result, status) == (payload, 200)
+    command, options = calls[0]
+    assert "--proto" in command and "=https" in command
+    assert "--max-filesize" in command
+    assert "--location" not in command
+    assert command[-1] == "https://example.invalid/records.json"
+    assert options["shell"] is False
+    assert options["timeout"] == 8
+
+    with pytest.raises(RuntimeError, match="只允许 HTTPS"):
+        preview_module._fetch_with_curl("http://example.invalid/file.json", limit=10, timeout=3)
+
+    def oversized_run(command, **kwargs):
+        output_path = Path(command[command.index("--output") + 1])
+        output_path.write_bytes(b"123456")
+        return SimpleNamespace(returncode=0, stdout=b"200", stderr=b"")
+
+    monkeypatch.setattr(preview_module.subprocess, "run", oversized_run)
+    with pytest.raises(RuntimeError, match="超过大小上限"):
+        preview_module._fetch_with_curl("https://example.invalid/file.json", limit=5, timeout=3)
 
 
 def test_fetch_rejects_digest_mismatch_http_errors_and_oversized_files():

@@ -89,6 +89,6 @@ docker compose exec postgres sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER"
   --apply
 ```
 
-当前 `config/fitness_dataset_sources.json` 仍为待审查状态，因此上述命令现在会在数据库连接前失败，这是预期行为。食材许可和计量基准需在来源文件项下分别用 `record_license_by_source`、`nutrition_basis_by_source` 记录经审查结论；菜谱来源需用 `recipe_license_by_source` 记录结论。不能为通过门禁而直接改成 `approved`。未明确批准、字段不完整或转换器判定隔离的记录不会写入用户可见目录。
+当前 `config/fitness_dataset_sources.json` 将仓库级 `metadata_license_status` 标为 `approved`，但这不代表每条饮食记录已获准。食材的 `record_license_by_source`、`nutrition_basis_by_source` 和菜谱的 `recipe_license_by_source` 映射仍为空；最新只读预览中 1,752 条食材、238 条菜谱和 119 个份量 profile 仍处于隔离状态。食材许可和计量基准必须按来源记录经审查的结论，菜谱许可也必须按来源记录；不能为了通过门禁而直接改成 `approved`。缺少许可、计量依据、字段或精确食材匹配的记录不会写入用户可见目录。正式导入仍须使用绑定当前预览报告的人工审阅批准记录。
 
 导入进度表针对 PostgreSQL 目录、PostgreSQL 文档、MongoDB、Elasticsearch、Milvus、Neo4j 分别记录状态。3.2 只完成 `postgres_catalog`；其余存储状态仍为 `pending`，待 3.3 的知识文档及现有检索链路实现。目录写入按数据集版本和上游 ID 幂等，失败后使用同一锁定版本重跑会从最近一个已提交的目录检查点继续。不要用旧的 `scripts/import_fitness_knowledge.py` 导入本数据集，它不是本目录导入流程。

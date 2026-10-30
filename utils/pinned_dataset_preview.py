@@ -13,7 +13,9 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import sys
+import subprocess
 import tempfile
 from typing import Any
 
@@ -65,6 +67,10 @@ class PinnedFile:
     def url(self) -> str:
         owner, repo = self.repository.split("/", maxsplit=1)
         return f"https://raw.githubusercontent.com/{owner}/{repo}/{self.commit}/{self.path}"
+
+    @property
+    def mirror_url(self) -> str:
+        return f"https://cdn.jsdelivr.net/gh/{self.repository}@{self.commit}/{self.path}"
 
 
 def _reject_json_constant(value: str) -> None:
@@ -196,6 +202,61 @@ def load_source_lock(path: Path) -> tuple[list[PinnedFile], str]:
     return parse_source_lock(lock_data)
 
 
+def _fetch_with_curl(url: str, *, limit: int, timeout: float) -> tuple[bytes, int]:
+    if not url.startswith("https://"):
+        raise RuntimeError("curl 回退只允许 HTTPS URL。")
+    executable = shutil.which("curl.exe") or shutil.which("curl")
+    if executable is None:
+        raise RuntimeError("系统中找不到 curl.exe。")
+
+    with tempfile.TemporaryDirectory(prefix="knowledge-agent-preview-") as temp_dir:
+        response_path = Path(temp_dir) / "response.json"
+        command = [
+            executable,
+            "--silent",
+            "--show-error",
+            "--max-time",
+            str(timeout),
+            "--connect-timeout",
+            str(timeout),
+            "--max-filesize",
+            str(limit),
+            "--proto",
+            "=https",
+            "--output",
+            str(response_path),
+            "--write-out",
+            "%{http_code}",
+            url,
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                timeout=timeout + 5,
+                shell=False,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise RuntimeError(f"curl.exe 请求失败：{exc}") from exc
+
+        if result.returncode != 0:
+            diagnostic = result.stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"curl.exe 请求失败，退出码 {result.returncode}：{diagnostic}")
+        status_bytes = result.stdout.strip()
+        if len(status_bytes) != 3 or not status_bytes.isdigit():
+            raise RuntimeError("curl.exe 未返回有效的 HTTP 状态码。")
+        status_code = int(status_bytes)
+        if status_code != 200:
+            return b"", status_code
+        if not response_path.is_file():
+            raise RuntimeError("curl.exe 未保存响应文件。")
+        if response_path.stat().st_size > limit:
+            raise RuntimeError(f"响应超过大小上限 {limit} 字节。")
+        return response_path.read_bytes(), status_code
+
+
 def fetch_pinned_json(
     source_file: PinnedFile,
     client: httpx.Client,
@@ -223,7 +284,28 @@ def fetch_pinned_json(
                 if len(body) > limit:
                     raise RuntimeError(f"{source_file.dataset}/{source_file.path} 超过大小上限 {limit} 字节。")
     except httpx.HTTPError as exc:
-        raise RuntimeError(f"获取 {source_file.dataset}/{source_file.path} 网络失败：{exc}") from exc
+        timeout = client.timeout.read or client.timeout.connect or 30.0
+        fallback_errors = []
+        raw = None
+        for fallback_url in (source_file.mirror_url, source_file.url):
+            try:
+                candidate, status_code = _fetch_with_curl(
+                    fallback_url, limit=limit, timeout=timeout
+                )
+            except RuntimeError as curl_exc:
+                fallback_errors.append(str(curl_exc))
+                continue
+            if status_code != 200:
+                fallback_errors.append(f"HTTP {status_code}")
+                continue
+            raw = candidate
+            break
+        if raw is None:
+            raise RuntimeError(
+                f"获取 {source_file.dataset}/{source_file.path} 网络失败：{exc}；"
+                f"curl.exe 回退失败：{'；'.join(fallback_errors)}"
+            ) from exc
+        body.extend(raw)
 
     raw = bytes(body)
     digest = hashlib.sha256(raw).hexdigest()

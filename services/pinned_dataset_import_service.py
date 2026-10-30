@@ -187,7 +187,6 @@ async def _get_or_create_import(session: AsyncSession, plan: ApprovedImportPlan,
         session.add(row)
         await session.flush()
     else:
-        row.import_status = "importing"
         row.metadata_license_status = source_metadata.get("metadata_license_status", "pending_review")
         row.media_license_status = source_metadata.get("media_license_status", "not_applicable")
         row.license_note = source_metadata.get("license_note", "已审阅固定来源报告；未批准记录保持隔离")
@@ -354,6 +353,16 @@ async def import_catalog(session: AsyncSession, plan: ApprovedImportPlan, *, bat
         progress_rows = {name: await _ensure_progress(session, import_row.id, name) for name in STORAGE_NAMES}
         progress = progress_rows["postgres_catalog"]
         import_id = import_row.id
+        previously_imported = (
+            import_row.import_status == "imported"
+            and all(
+                progress_rows[name].progress_status == "completed"
+                for name in STORAGE_NAMES
+                if name != "postgres_catalog"
+            )
+        )
+        import_row.import_status = "importing"
+        import_row.updated_at = datetime.now(timezone.utc)
         resuming = progress.progress_status in {"running", "failed"}
         resume_after = (progress.checkpoint or {}).get("last_record_key", "") if resuming else ""
         processed_before = progress.processed_records if resume_after else 0
@@ -410,7 +419,7 @@ async def import_catalog(session: AsyncSession, plan: ApprovedImportPlan, *, bat
             progress.checkpoint = {"last_record_key": _source_record_key(rows[-1]) if rows else ""}
             progress.completed_at = datetime.now(timezone.utc)
             progress.updated_at = datetime.now(timezone.utc)
-            import_row.import_status = "importing"
+            import_row.import_status = "imported" if previously_imported else "importing"
             import_row.updated_at = datetime.now(timezone.utc)
             await session.commit()
         except Exception as exc:

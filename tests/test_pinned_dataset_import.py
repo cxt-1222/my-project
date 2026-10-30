@@ -265,6 +265,24 @@ def test_import_catalog_writes_only_approved_active_rows_and_is_idempotent():
     assert all(status == "pending" for name, status in statuses.items() if name != "postgres_catalog")
 
 
+@pytest.mark.parametrize("rag_stages_completed", [True, False])
+def test_catalog_reimport_preserves_published_status_only_when_all_stages_are_complete(rag_stages_completed):
+    session = MemoryAsyncSession()
+    plan = _plan()
+    asyncio.run(import_catalog(session, plan, batch_size=1))
+
+    import_row = session.rows[DatasetImportModel][0]
+    import_row.import_status = "imported"
+    for progress in session.rows[DatasetImportProgressModel]:
+        if progress.storage_name != "postgres_catalog":
+            progress.progress_status = "completed" if rag_stages_completed else "pending"
+
+    asyncio.run(import_catalog(session, plan, batch_size=1))
+
+    expected_status = "imported" if rag_stages_completed else "importing"
+    assert import_row.import_status == expected_status
+
+
 def test_import_plan_quarantines_records_when_source_approval_is_missing(monkeypatch):
     plan = _build_plan_with_license_mappings(monkeypatch, food_licenses={})
 
