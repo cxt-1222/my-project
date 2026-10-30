@@ -1,6 +1,6 @@
 # Knowledge Agent
 
-基于 FastAPI 的企业知识库后端服务：文档解析入库、RAG 检索问答、知识图谱构建、团队权限管理，以及语音识别/合成（ASR/TTS）能力。
+基于 FastAPI 的知识库与健身管理应用，包含文档解析、RAG 检索问答、知识图谱、团队权限、健身档案、训练计划/打卡、饮食记录和拍照识餐。前端为原生 HTML/CSS/JavaScript。
 
 ## 技术栈
 
@@ -19,8 +19,9 @@
 | 语音 | 腾讯云 ASR / TTS（WebSocket 流式） |
 | 联网搜索 | BochaAI（知识库相关性不足时兜底） |
 | 鉴权 | JWT（access + refresh）+ bcrypt |
+| 缓存 | Redis |
 
-## 项目结构（2026-09 重构后）
+## 项目结构
 
 ```
 core/      config.py(统一 Settings)、database.py(统一 PG engine/Base)、security.py(鉴权依赖)
@@ -31,15 +32,17 @@ api/       全部路由：user、role、team、permission、review、document、
 services/  document_service、content_service、graph_service、llm_service
 clients/   rustfs、es_client、milvus_client、neo4j_client、rabbitmq/、tencent_speech、web_search
 utils/     auth、hashing、split_file、parsers/(pdf、docx、xlsx、epub 等)
-scripts/   基础设施检查、OpenAPI 导出、全链路/回归/语音测试脚本
-main.py    路由挂载 + lifespan 初始化（RustFS bucket、Mongo、MQ、ES、Neo4j）
+scripts/   本机启动、基础设施检查、数据导入、OpenAPI 导出及测试脚本
+migrations/ PostgreSQL 增量 SQL 迁移
+frontend/  原生 HTML/CSS/JavaScript 前端与本机静态服务器
+main.py    路由挂载 + lifespan 初始化（RustFS、Mongo、Redis、Milvus、MQ、ES、Neo4j）
 ```
 
 ## 核心流程
 
 ```
 上传文件(/restfs) → 解析切片 → 保存草稿(PG + Mongo)
-→ 发布(/publish) → RabbitMQ 三条队列:
+→ 发布(/knowledge_doc) → RabbitMQ 三条队列:
      INDEX        → Elasticsearch 全文索引
      BY_DOC_IDS   → Embedding → Milvus 向量入库
      BUILD_BY_DOC_IDS → LLM 抽取实体关系 → Neo4j 知识图谱
@@ -55,48 +58,34 @@ main.py    路由挂载 + lifespan 初始化（RustFS bucket、Mongo、MQ、ES�
 |---|---|---|
 | 认证/用户 | `/user`、`/role` | 登录、JWT、用户与角色 |
 | 组织 | `/team`、`/permission` | 团队、权限 |
-| 内容 | `/knowledge_doc`、`/pg`、`/mongo` | 文档 CRUD、解析状态 |
+| 内容/发布 | `/knowledge_doc`、`/pg`、`/mongo` | 文档 CRUD、解析状态、审核后发布 |
 | 文件 | `/restfs` | 上传/下载/预签名 URL |
-| 发布 | `/publish` | 触发 MQ 入库流水线 |
-| 检索 | `/es`、`/milvus`、`/neo` | 全文 / 向量 / 图谱 |
+| 检索 | `/es`、`/milvus`、`/neo4j` | 全文 / 向量 / 图谱 |
 | AI | `/ai`、`/chat` | 问答调用、会话管理 |
 | 审核 | `/review` | 内容审核流 |
 | 语音 | `/voice` | TTS(HTTP/WS)、STT(WS)，WS 鉴权走 query token |
+| 健身/饮食 | `/fitness`、`/training`、`/nutrition`、`/catalog` | 健身档案、训练计划/打卡、饮食记录与目录 |
+| 知识维护 | `/admin/knowledge-maintenance` | 知识清理预览、执行和校验 |
 
-> 重构变更：`/restFS/* → /restfs/*`、`/Milvus/* → /milvus/*`，前端需同步。
-> Vite 代理的 rewrite 对 WebSocket upgrade 不生效，`/voice` 额外挂了 `/api/voice` 前缀别名。
+后端同时挂载 `/api/voice` 别名，以兼容反向代理下的 WebSocket 路径。
 
-## 快速开始
+## 本机快速开始
 
-### 环境要求
+当前推荐的运行方式是 Docker 启动中间件，本机运行前后端。仓库没有 `.env.example`；先准备本机自己的 `.env`，再按[本机开发运行说明](docs/local-development.md)安装依赖并配置连接。不要把 `.env` 提交到 Git。
 
-- Python 3.11+（Windows 下已自动切换 SelectorEventLoop，psycopg 异步必需）
-- Docker / Docker Compose（中间件全家桶）
+项目需要 Python 3.11、Node.js、Docker Desktop 和 Docker Compose v2。Windows 下可在项目根目录运行：
 
-### 1. 配置环境变量
-
-```bash
-cp .env.example .env   # 若无模板则手动创建，见下表必填项
+```powershell
+if (-not (Test-Path '.venv\Scripts\python.exe')) { python -m venv .venv }
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe scripts/run_local_dev.py
 ```
 
-### 2. 启动基础设施
+正常启动后，前端地址为 `http://localhost:5173`，后端为 `http://localhost:8000`。Swagger/OpenAPI 描述目前不完整，不能作为完整的登录、流式问答或鉴权验收依据。
 
-```bash
-docker compose up -d   # postgres、mongodb、milvus、elasticsearch、neo4j、rabbitmq、rustfs 等
-```
+本机启动配置默认不启动 Redis；它仅用于近期聊天上下文缓存，未连接时会回退到 PostgreSQL。需要测试缓存时见本机开发说明。
 
-> 资源提示：ES + Milvus + Neo4j + PG + Mongo + RabbitMQ + etcd + RustFS 全家桶，建议 16G 内存起。
-
-### 3. 启动应用
-
-```bash
-pip install -r requirements.txt
-python scripts/run_uvicorn.py     # 或 uvicorn main:app --reload --port 8000
-```
-
-启动时 lifespan 自动初始化 RustFS bucket、Mongo 连接、MQ 队列、ES、Neo4j 驱动。
-
-访问 `http://localhost:8000/docs` 查看 OpenAPI 文档。
+> Compose 是本机开发配置，包含开发默认值并映射多个中间件端口。不要将它直接用于公网生产部署，也不要把 `scripts/run_local_dev.py` 用于云服务器。
 
 ### 主要环境变量（.env）
 
@@ -121,27 +110,24 @@ python scripts/check_infra_state.py     # 检查各中间件连通性
 python scripts/test_fullchain_http.py   # 发布→MQ→ES/Milvus/KG 全链路测试
 python scripts/test_regression.py       # 回归测试
 python scripts/dump_openapi.py          # 导出 OpenAPI JSON
-python scripts/test_chat.py / test_voice.py
+python scripts/test_chat.py             # 需要本地服务
+python scripts/test_voice.py            # 需要本地语音服务配置
 ```
 
 ## 相关文档
 
 - `docs/deployment-tencent-cloud.md` — 腾讯云部署指南
 - `docs/llm-private-deployment.md` — LLM 私有化部署
-- 前端工程：`kh_frondend`（Vue3 + TS + ElementPlus，`/api` 代理到本服务）
+- 前端目录：`frontend/`（原生 HTML/CSS/JavaScript）
 
-## 已知问题与技术债
+## 部署状态与未完成项
 
-- **密钥硬编码**：`core/config.py` 仍有 PG/RabbitMQ 默认弱密码与 `BOCHAAI_KEY` 兜底值，生产环境必须通过 `.env` 覆盖并轮换
-- **CORS 写死** `http://localhost:5173`，上线需换生产域名
-- **pymilvus 3.0.1 vs Milvus 镜像 v2.4.0** 版本兼容性未实测
-- compose 中 `mysql`、各类管理工具（pgAdmin/RedisInsight/Kibana/Neo4j Browser 等）为残留或仅限开发，生产应移除或不暴露公网
-- LLM 调用（rerank/embedding/抽取）无退避重试，限流时会失败
+当前验收面向本机个人测试。项目尚未达到直接公网部署条件，主要缺口包括：
 
-## 建议上线顺序
+- Compose、配置模块和本地启动脚本仍有开发凭据或默认值；需轮换已写入代码的凭据并改为外部 Secret 注入。
+- Compose 会向宿主机发布多个数据库、检索和管理端口；尚无专用生产 Compose 和限制公网访问的配置。
+- 前端默认 API 地址为 `http://localhost:8000`（页面可改本机连接地址），静态服务器只监听回环地址；尚无生产 API 基址、静态托管、HTTPS 反向代理及生产 CORS 配置。
+- PostgreSQL 增量迁移尚未接入版本台账或自动部署流程；生产备份恢复演练、监控告警和容量测试也未完成。
+- 健身与饮食数据只按本地个人测试范围验收；部分食材/菜谱/份量及所有图片、视频仍未获批。
 
-1. 密钥全部环境变量化 + 换强密码
-2. 应用单独 Dockerfile，精简 compose（去管理工具和 mysql 残留）
-3. 网关层 HTTPS + CORS 收紧
-4. 预发完整跑一遍链路（publish → MQ → ES/Milvus/KG → /ai 问答）
-5. 备份方案（volumes 定时备份）+ 监控告警（DLQ 积压、容器健康）
+部署事实、当前阻断项和数据范围见[腾讯云部署与生产准备说明](docs/deployment-tencent-cloud.md)。在 P0 项完成前，不要将当前 Compose 直接用于公网服务器。

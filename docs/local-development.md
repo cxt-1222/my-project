@@ -11,6 +11,8 @@ Docker：PostgreSQL、MongoDB、RabbitMQ、Neo4j、Elasticsearch、Milvus、Rust
 
 这样修改 Python、HTML、CSS、JavaScript 后，不需要重新构建 `aiagent-end` 镜像。
 
+此方式只用于本机测试。Compose 和本机启动脚本包含开发用连接参数，不要用于共享数据库或生产环境。脚本中的开发凭据还需要后续改为安全的本机配置；生产化缺口见[腾讯云部署与生产准备说明](deployment-tencent-cloud.md)。
+
 ## 首次配置 Python 本机环境
 
 只需要首次执行一次。如果 `.venv` 已存在，直接执行依赖安装即可：
@@ -21,7 +23,7 @@ if (-not (Test-Path '.venv\Scripts\python.exe')) { python -m venv .venv }
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt --index-url https://pypi.org/simple
 ```
 
-如果默认镜像源返回 `403`，使用上面的 `https://pypi.org/simple`。安装完成后，本机 FastAPI 需要的 `aioboto3`、`aio-pika`、`neo4j`、`psycopg[binary]`、文档解析依赖等才会齐全。
+如果默认镜像源返回 `403`，使用上面的 `https://pypi.org/simple`。安装完成后，本机 FastAPI 需要的 `aioboto3`、`aio-pika`、`neo4j`、`psycopg[binary]`、文档解析依赖等才会齐全。运行前还需要安装 Node.js，并准备包含本机模型服务密钥等配置的 `.env`；不要在文档或聊天中粘贴密钥。
 
 ## 启动后端
 
@@ -76,6 +78,14 @@ Docker 容器之间使用服务名，例如 `postgres`、`mongodb`；本机运�
 
 `start-local-backend.ps1` 已经将这些配置设置为本机模式，并覆盖 `.env` 中不适用于本机运行的地址。
 
+PyCharm 一键启动和 `scripts/run_local_dev.py` 也会覆盖本机连接参数。项目当前未提供 `.env.example`，且脚本内的开发凭据仍需后续整改；不要把脚本复制到云服务器或改成连接共享/生产数据库。
+
+PyCharm 启动配置默认不会启动 Redis。Redis 只提供近期聊天上下文缓存；Redis 不可用时应用会回退到 PostgreSQL，不影响基础问答。需要测试缓存时，可在项目根目录另开终端运行：
+
+```powershell
+docker compose up -d redis
+```
+
 ## 切换回 Docker 运行后端
 
 先在本机 FastAPI 窗口按 `Ctrl + C`，然后执行：
@@ -87,23 +97,9 @@ docker compose up -d --no-build aiagent-end
 
 ## 常见问题
 
-### MongoDB 连接失败
+### MongoDB 或 PostgreSQL 认证失败
 
-本机不能使用 `mongodb://mongodb:27017`，应使用：
-
-```text
-mongodb://root:lyp82nlfxxlE@127.0.0.1:27018/?authSource=admin
-```
-
-### PostgreSQL 用户认证失败
-
-当前 Compose 的默认 PostgreSQL 用户是 `user`，本机配置应使用：
-
-```text
-POSTGRES_USER=user
-POSTGRES_PASSWORD=lyp82nlfxxlE
-POSTGRES_PORT=5433
-```
+本机运行的后端连接地址应使用表格中的宿主机地址和端口；Docker 容器内部服务名（例如 `mongodb`、`postgres`）只适用于容器之间通信。实际账号和密码以当前本机 Compose 数据卷初始化时使用的配置为准，不要把口令写进命令历史或文档。修改 Compose 密码不会自动修改已经初始化的数据卷中的数据库用户；认证失败时应先比对当前容器配置与该数据卷已有账号，不要直接删除数据卷。
 
 ### 不要执行的命令
 
