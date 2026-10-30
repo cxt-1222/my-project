@@ -13,6 +13,10 @@ if sys.platform == 'win32':
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from scripts.run_local_dev import configure_environment
+
+configure_environment()
+
 import uvicorn
 
 from main import app
@@ -25,4 +29,4 @@ async def serve():
 
 
 if __name__ == '__main__':
-    asyncio.run(serve(), loop_factory=asyncio.SelectorEventLoop)
+    asyncio.run(serve())

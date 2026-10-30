@@ -3,24 +3,37 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $projectRoot
 
+function Invoke-DockerCompose {
+    param([Parameter(Mandatory)][string[]]$Arguments)
+
+    $output = & docker compose @Arguments 2>&1
+    $exitCode = $LASTEXITCODE
+    $output | ForEach-Object { Write-Host $_ }
+    if ($exitCode -ne 0) {
+        throw "docker compose $($Arguments -join ' ') 失败（退出代码 $exitCode）。"
+    }
+}
+
 if (-not (Test-Path '.venv\Scripts\python.exe')) {
     throw "未找到 Python 虚拟环境：$projectRoot\.venv。请先执行：python -m venv .venv"
 }
 
 Write-Host '停止 Docker 中的 FastAPI 容器，释放本机 8000 端口...' -ForegroundColor Cyan
-docker compose stop aiagent-end 2>$null
+Invoke-DockerCompose -Arguments @('stop', 'aiagent-end')
 
 Write-Host '启动后端依赖容器（不启动 aiagent-end 应用镜像）...' -ForegroundColor Cyan
-docker compose up -d --no-build `
-  postgres `
-  mongodb `
-  rabbitmq `
-  neo4j `
-  rustfs `
-  elasticsearch `
-  etcd `
-  minio `
-  milvus
+Invoke-DockerCompose -Arguments @(
+  'up', '-d', '--no-build',
+  'postgres',
+  'mongodb',
+  'rabbitmq',
+  'neo4j',
+  'rustfs',
+  'elasticsearch',
+  'etcd',
+  'minio',
+  'milvus'
+)
 
 # 本机运行 FastAPI 时，不能使用 Docker 内部服务名，需要使用宿主机映射端口。
 $env:POSTGRES_HOST = '127.0.0.1'
