@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import re
 from typing import Annotated, Any
 
@@ -665,8 +666,14 @@ async def _prepare_materials(
             dataset=dataset,
             source_record_id=source_record_id,
         )
-    # 向量召回(按可见文档过滤)
-    milvus_data = await search_milvus_data(query, sorted(visible_doc_ids))
+    # 向量召回(按可见文档过滤)。Milvus 不可用时仍走 ES 和结构化目录检索。
+    try:
+        milvus_data = await search_milvus_data(query, sorted(visible_doc_ids))
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "Milvus vector retrieval failed; continuing with other sources: %s", exc
+        )
+        milvus_data = {"data": []}
     # 关键词召回(ES 内按可见性过滤)
     es = await get_es()
     es_data = await search_data(query, es, current_user.id)

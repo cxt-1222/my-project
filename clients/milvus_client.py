@@ -1,12 +1,14 @@
 import asyncio
+import threading
 
-from pymilvus import AsyncMilvusClient, DataType
+from pymilvus import AsyncMilvusClient, DataType, MilvusClient
 from langchain_openai import OpenAIEmbeddings
 
 from core.config import settings
 
 MILVUS_DOC_ID_FILTER_BATCH_SIZE = 20
 MILVUS_SEARCH_LIMIT = 10
+MILVUS_COLLECTION_LOAD_TIMEOUT_SECONDS = 300
 
 # 创建 集合
 milvus_client = AsyncMilvusClient(
@@ -14,6 +16,91 @@ milvus_client = AsyncMilvusClient(
     token=settings.MILVUS_TOKEN,
     db_name=settings.DB_NAME
 )
+_knowledge_collection_loaded = False
+_metadata_client_lock = threading.Lock()
+_metadata_client: MilvusClient | None = None
+
+
+def _get_metadata_client() -> MilvusClient:
+    global _metadata_client
+    with _metadata_client_lock:
+        if _metadata_client is None:
+            _metadata_client = MilvusClient(
+                uri=settings.MILVUS_URL,
+                token=settings.MILVUS_TOKEN,
+                db_name=settings.DB_NAME,
+                timeout=settings.MILVUS_SEARCH_TIMEOUT_SECONDS,
+            )
+        return _metadata_client
+
+
+def _has_milvus_collection(collection_name: str) -> bool:
+    return _get_metadata_client().has_collection(
+        collection_name=collection_name,
+        timeout=settings.MILVUS_SEARCH_TIMEOUT_SECONDS,
+    )
+
+
+def _describe_milvus_collection(collection_name: str) -> dict:
+    return _get_metadata_client().describe_collection(
+        collection_name=collection_name,
+        timeout=settings.MILVUS_SEARCH_TIMEOUT_SECONDS,
+    )
+
+
+def _get_milvus_load_state(collection_name: str) -> dict:
+    return _get_metadata_client().get_load_state(
+        collection_name=collection_name,
+        timeout=settings.MILVUS_SEARCH_TIMEOUT_SECONDS,
+    )
+
+
+async def has_milvus_collection(collection_name: str) -> bool:
+    """Run collection metadata checks through the SDK's synchronous admin API."""
+    return await asyncio.to_thread(_has_milvus_collection, collection_name)
+
+
+async def describe_milvus_collection(collection_name: str) -> dict:
+    return await asyncio.to_thread(_describe_milvus_collection, collection_name)
+
+
+async def get_milvus_load_state(collection_name: str) -> dict:
+    return await asyncio.to_thread(_get_milvus_load_state, collection_name)
+
+
+async def close_milvus_metadata_client() -> None:
+    global _metadata_client
+    with _metadata_client_lock:
+        client, _metadata_client = _metadata_client, None
+    if client is not None:
+        await asyncio.to_thread(client.close)
+
+
+def _load_state_name(result) -> str:
+    state = result.get("state") if isinstance(result, dict) else result
+    return (getattr(state, "name", None) or str(state)).replace(" ", "").lower()
+
+
+async def _ensure_collection_loaded(collection_name: str) -> None:
+    state = _load_state_name(await get_milvus_load_state(collection_name))
+    if "loaded" in state and "notload" not in state:
+        return
+    if "notload" in state:
+        await milvus_client.load_collection(
+            collection_name=collection_name,
+            timeout=MILVUS_COLLECTION_LOAD_TIMEOUT_SECONDS,
+        )
+        state = _load_state_name(await get_milvus_load_state(collection_name))
+
+    deadline = asyncio.get_running_loop().time() + MILVUS_COLLECTION_LOAD_TIMEOUT_SECONDS
+    while "loading" in state:
+        if asyncio.get_running_loop().time() >= deadline:
+            raise TimeoutError(f"Milvus collection load timed out: {collection_name}")
+        await asyncio.sleep(1)
+        state = _load_state_name(await get_milvus_load_state(collection_name))
+
+    if "loaded" not in state or "notload" in state:
+        raise RuntimeError(f"Milvus collection is not loadable: {collection_name} ({state})")
 
 # content 内容转向量
 embddings_model = OpenAIEmbeddings(
@@ -142,6 +229,9 @@ async def search_milvus_data(query: str, doc_ids: list[int] | None = None):
     if doc_ids is not None and not doc_ids:
         return {'msg': '向量查询成功', 'data': []}
 
+    if not _knowledge_collection_loaded:
+        return {'msg': '向量查询降级：knowledge 集合尚未加载', 'data': []}
+
     vector_query = await embedding_text(query)
     id_batches = _chunk_doc_ids(doc_ids) if doc_ids is not None else [None]
     hit_batches = []
@@ -154,17 +244,20 @@ async def search_milvus_data(query: str, doc_ids: list[int] | None = None):
             if id_batch is not None
             else None
         )
-        res = await milvus_client.search(
-            collection_name=settings.COLLECTION_NAME,
-            data=[vector_query],  # 查询向量
-            anns_field="vector",  # 向量字段名
-            search_params={
-                "metric_type": "COSINE",  # 度量类型应与创建索引时一致
-                "params": {"nprobe": 16}  # 搜索时考虑的聚类数量
-            },
-            limit=MILVUS_SEARCH_LIMIT,
-            output_fields=["id", 'title', 'content_id', 'content'],
-            filter=filter_expr,
+        res = await asyncio.wait_for(
+            milvus_client.search(
+                collection_name=settings.COLLECTION_NAME,
+                data=[vector_query],  # 查询向量
+                anns_field="vector",  # 向量字段名
+                search_params={
+                    "metric_type": "COSINE",  # 度量类型应与创建索引时一致
+                    "params": {"nprobe": 16}  # 搜索时考虑的聚类数量
+                },
+                limit=MILVUS_SEARCH_LIMIT,
+                output_fields=["id", 'title', 'content_id', 'content'],
+                filter=filter_expr,
+            ),
+            timeout=settings.MILVUS_SEARCH_TIMEOUT_SECONDS,
         )
         hit_batches.append(res[0] if res else [])
 
@@ -177,7 +270,7 @@ async def search_milvus_data(query: str, doc_ids: list[int] | None = None):
 async def ensure_chat_memory_collection():
     """Create a separate collection for user memories without touching document vectors."""
     name = settings.CHAT_MEMORY_COLLECTION
-    if not await milvus_client.has_collection(collection_name=name):
+    if not await has_milvus_collection(collection_name=name):
         schema = milvus_client.create_schema(auto_id=False, enable_dynamic_field=False)
         schema.add_field(field_name="id", datatype=DataType.VARCHAR, is_primary=True, max_length=64)
         schema.add_field(field_name="user_id", datatype=DataType.INT64)
@@ -197,13 +290,24 @@ async def ensure_chat_memory_collection():
             schema=schema,
             index_params=index_params,
         )
-    await milvus_client.load_collection(collection_name=name)
+    await _ensure_collection_loaded(name)
+
+
+async def ensure_knowledge_collection():
+    """Load the existing document-vector collection without modifying its data."""
+    global _knowledge_collection_loaded
+    _knowledge_collection_loaded = False
+    name = settings.COLLECTION_NAME
+    if not await has_milvus_collection(collection_name=name):
+        raise RuntimeError(f"Required Milvus collection does not exist: {name}")
+    await _ensure_collection_loaded(name)
+    _knowledge_collection_loaded = True
 
 
 async def search_chat_memories(query: str, user_id: int, limit: int | None = None) -> list[dict]:
     """Recall only the current user's long-term memories."""
     name = settings.CHAT_MEMORY_COLLECTION
-    if not await milvus_client.has_collection(collection_name=name):
+    if not await has_milvus_collection(collection_name=name):
         return []
     vector = await embedding_text(query)
     result = await milvus_client.search(
@@ -249,7 +353,7 @@ async def upsert_chat_memory(user_id: int, session_id: int, category: str, conte
 
 async def delete_chat_memories_for_session(user_id: int, session_id: int) -> None:
     name = settings.CHAT_MEMORY_COLLECTION
-    if await milvus_client.has_collection(collection_name=name):
+    if await has_milvus_collection(collection_name=name):
         await milvus_client.delete(
             collection_name=name,
             filter=f"user_id == {int(user_id)} and source_session_id == {int(session_id)}",

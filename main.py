@@ -5,10 +5,15 @@ from clients.rustfs import init_rustfs_bucket
 from services.content_service import init_mongodb
 from clients.rabbitmq.mq import init_mq,close_mq
 from clients.es_client import init_es,close_es
-from clients.milvus_client import start_vector_writer, stop_vector_writer
+from clients.milvus_client import (
+    close_milvus_metadata_client,
+    ensure_chat_memory_collection,
+    ensure_knowledge_collection,
+    start_vector_writer,
+    stop_vector_writer,
+)
 from clients.neo4j_client import init_neo4j_driver, close_neo4j_driver
 from clients.chat_cache import init_chat_cache, close_chat_cache
-from clients.milvus_client import ensure_chat_memory_collection
 
 if sys.platform == 'win32':
     # psycopg 异步模式不支持 Windows 默认的 ProactorEventLoop
@@ -38,16 +43,51 @@ from api.nutrition import nutrition_router
 from api.knowledge_maintenance import knowledge_maintenance_router
 from api.catalog import catalog_router
 
+
+MILVUS_STARTUP_WAIT_SECONDS = 30
+_background_milvus_load_tasks: set[asyncio.Task] = set()
+
+
+def _report_background_milvus_load(label, task):
+    if task.cancelled():
+        print(f"{label} Milvus collection load was cancelled")
+        return
+    error = task.exception()
+    if error:
+        print(f"{label} Milvus collection load failed: {error}")
+    else:
+        print(f"{label} Milvus collection loaded after HTTP startup")
+
+
+async def _load_milvus_collection(label, initializer):
+    task = asyncio.create_task(initializer())
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=MILVUS_STARTUP_WAIT_SECONDS)
+    except asyncio.TimeoutError:
+        _background_milvus_load_tasks.add(task)
+
+        def on_complete(completed):
+            _background_milvus_load_tasks.discard(completed)
+            _report_background_milvus_load(label, completed)
+
+        task.add_done_callback(on_complete)
+        print(f"{label} Milvus collection is still loading; HTTP startup will continue")
+    except Exception as exc:
+        print(f"{label} Milvus collection unavailable; retrieval may be degraded: {exc}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 在main的lifespan里调用抽出去的初始化函数
     await init_rustfs_bucket()
     await init_mongodb()
     await init_chat_cache()
-    try:
-        await ensure_chat_memory_collection()
-    except Exception as exc:
-        print(f"Chat memory collection unavailable; long-term memory disabled: {exc}")
+    # A Milvus load failure should not prevent HTTP startup; retrieval can use
+    # Elasticsearch and structured catalog data while vector search recovers.
+    await asyncio.gather(
+        _load_milvus_collection("Knowledge", ensure_knowledge_collection),
+        _load_milvus_collection("Chat memory", ensure_chat_memory_collection),
+    )
     start_vector_writer()
     await init_mq()
     await init_es()
@@ -58,6 +98,7 @@ async def lifespan(app: FastAPI):
     await close_es()
     await close_neo4j_driver()
     await close_chat_cache()
+    await close_milvus_metadata_client()
     print("App shutdown")
 
 app = FastAPI(title="Knowledge",lifespan=lifespan)

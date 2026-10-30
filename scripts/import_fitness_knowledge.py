@@ -211,7 +211,11 @@ async def _preflight(author_id: int, resources: dict[str, Any]) -> None:
     from sqlalchemy import select, text
 
     from clients import es_client, neo4j_client
-    from clients.milvus_client import milvus_client
+    from clients.milvus_client import (
+        describe_milvus_collection,
+        has_milvus_collection,
+        milvus_client,
+    )
     from clients.es_client import init_es
     from core.config import settings
     from core.database import SessionLocal, engine
@@ -249,12 +253,12 @@ async def _preflight(author_id: int, resources: dict[str, Any]) -> None:
             f"Elasticsearch 索引 {settings.INDEX_NAME!r} 不存在；请先按项目现有方式初始化 ES 索引。"
         )
 
-    if not await milvus_client.has_collection(collection_name=settings.COLLECTION_NAME):
+    if not await has_milvus_collection(collection_name=settings.COLLECTION_NAME):
         raise RuntimeError(
             f"Milvus 集合 {settings.COLLECTION_NAME!r} 不存在；请先用项目现有流程创建。"
         )
     fields = _milvus_fields(
-        await milvus_client.describe_collection(collection_name=settings.COLLECTION_NAME)
+        await describe_milvus_collection(collection_name=settings.COLLECTION_NAME)
     )
     required_fields = {"vector", "title", "content_id", "content"}
     missing = required_fields - fields.keys()

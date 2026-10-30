@@ -24,6 +24,7 @@ class MilvusSearchTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(milvus_module, "embedding_text", new=AsyncMock(return_value=[0.1] * 8)),
             patch.object(milvus_module, "milvus_client", fake_client),
+            patch.object(milvus_module, "_knowledge_collection_loaded", True),
         ):
             result = await milvus_module.search_milvus_data("深蹲怎么做", doc_ids)
 
@@ -57,12 +58,28 @@ class MilvusSearchTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(milvus_module, "embedding_text", new=AsyncMock(return_value=[0.1] * 8)),
             patch.object(milvus_module, "milvus_client", fake_client),
+            patch.object(milvus_module, "_knowledge_collection_loaded", True),
         ):
             result = await milvus_module.search_milvus_data("anything", None)
 
         fake_client.search.assert_awaited_once()
         self.assertIsNone(fake_client.search.await_args.kwargs["filter"])
         self.assertEqual(result["data"], [{"distance": 0.8}])
+
+    async def test_unloaded_collection_skips_embedding_and_search(self):
+        fake_client = SimpleNamespace(
+            search=AsyncMock(),
+        )
+        with (
+            patch.object(milvus_module, "embedding_text", new=AsyncMock()) as embed,
+            patch.object(milvus_module, "milvus_client", fake_client),
+            patch.object(milvus_module, "_knowledge_collection_loaded", False),
+        ):
+            result = await milvus_module.search_milvus_data("anything", [1])
+
+        self.assertEqual(result["data"], [])
+        embed.assert_not_awaited()
+        fake_client.search.assert_not_awaited()
 
 
 if __name__ == "__main__":

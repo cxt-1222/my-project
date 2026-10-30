@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     MILVUS_TOKEN: str
     MILVUS_BATCH_SIZE: int = 200      # 攒批写入条数阈值
     MILVUS_BATCH_INTERVAL: float = 5.0  # 攒批最长等待秒数
+    MILVUS_SEARCH_TIMEOUT_SECONDS: float = 5.0  # 向量库异常时快速降级到其他召回源
 
     # Neo4j
     NEO4J_URI: str

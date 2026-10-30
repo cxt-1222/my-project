@@ -414,6 +414,45 @@ class AIFitnessCatalogRetrievalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sources[0]["documentId"], "215")
         self.assertEqual(sources[0]["documentTitle"], "健身动作：Dumbbell Squat")
 
+    async def test_prepare_materials_falls_back_when_milvus_collection_is_unavailable(self):
+        query = "只根据知识库说明哑铃深蹲的动作步骤、训练部位和常见错误"
+        doc = SimpleNamespace(id=215, title="健身动作：Dumbbell Squat")
+        item = SimpleNamespace(
+            name="Dumbbell Squat",
+            normalized_fields={
+                "body_part": "upper legs",
+                "target_muscle": "glutes",
+                "steps": ["Brace your core.", "Lower into a squat."],
+                "common_mistakes": ["Letting the knees cave inward."],
+            },
+        )
+        db = SimpleNamespace(execute=AsyncMock())
+        db.execute.side_effect = [
+            SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [215])),
+            SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [doc])),
+        ]
+
+        with (
+            patch(
+                "api.ai.search_milvus_data",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("collection not loaded"),
+            ),
+            patch("api.ai.get_es", new_callable=AsyncMock, return_value=object()),
+            patch("api.ai.search_data", new_callable=AsyncMock, return_value={"data": []}) as search_es,
+            patch("api.ai.rerank_call", new_callable=AsyncMock, return_value=[]),
+            patch(
+                "api.ai._search_exercise_catalog",
+                new_callable=AsyncMock,
+                return_value=[(item, doc, True)],
+            ),
+        ):
+            context, sources = await _prepare_materials(query, 5, False, db, SimpleNamespace(id=42))
+
+        search_es.assert_awaited_once()
+        self.assertIn("动作名称：Dumbbell Squat", context)
+        self.assertEqual(sources[0]["documentId"], "215")
+
     async def test_strict_exercise_query_does_not_use_similar_catalog_variants(self):
         query = (
             "只根据本次检索到的健身知识库条目，说明杠铃深蹲的动作步骤、训练部位和常见错误。"

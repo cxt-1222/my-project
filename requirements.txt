@@ -7,7 +7,8 @@ httpx==0.28.1
 SQLAlchemy==2.0.52
 redis==6.4.0
 aiomysql==0.3.2
-pymilvus==3.0.1
+setuptools>=70,<81
+pymilvus==2.5.14
 EbookLib==0.20
 pydub==0.25.1
 websockets==16.1.1
